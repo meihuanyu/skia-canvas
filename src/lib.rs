@@ -13,6 +13,7 @@ mod gradient;
 mod pattern;
 mod typography;
 mod utils;
+mod window;
 
 use context::api as ctx;
 use typography::FontLibrary;
@@ -186,5 +187,6 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
   cx.export_function("CanvasRenderingContext2D_set_shadowOffsetX", ctx::set_shadowOffsetX)?;
   cx.export_function("CanvasRenderingContext2D_set_shadowOffsetY", ctx::set_shadowOffsetY)?;
 
+  cx.export_function("display", window::begin_display_loop)?;
   Ok(())
 }
