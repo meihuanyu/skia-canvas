@@ -13,19 +13,19 @@ use skia_safe::{Image as SkImage, ImageInfo, Color, ColorType,
         AlphaType, Data, Surface, Rect, Picture, Paint, PaintStyle};
 
 use glutin::{PossiblyCurrent};
-use glutin::event::{Event, KeyboardInput, VirtualKeyCode, WindowEvent, ModifiersState, ElementState};
+use glutin::event::{Event, KeyboardInput, VirtualKeyCode, WindowEvent, ModifiersState, ElementState, StartCause};
 use glutin::event_loop::{ControlFlow, EventLoop};
 use glutin::window::{WindowBuilder, WindowId, Fullscreen};
 use glutin::dpi::{Size, LogicalSize, PhysicalSize, LogicalPosition, PhysicalPosition};
 use glutin::GlProfile;
 use glutin::platform::run_return::EventLoopExtRunReturn;
-type WindowedContext = glutin::ContextWrapper<glutin::PossiblyCurrent, glutin::window::Window>;
-
 use gl::types::*;
 use gl_rs as gl;
 
 use crate::context::{Context2D, BoxedContext2D};
 use crate::utils::*;
+
+type WindowedContext = glutin::ContextWrapper<glutin::PossiblyCurrent, glutin::window::Window>;
 
 fn create_surface(windowed_context: &WindowedContext, gl_context:&mut DirectContext) -> skia_safe::Surface {
   let fb_info = {
@@ -127,6 +127,17 @@ impl View{
     self.context.swap_buffers().unwrap();
   }
 
+  fn animate(&mut self, cx:&mut FunctionContext, result:Handle<JsValue>){
+    if let Ok(c2d) = result.downcast::<BoxedContext2D, _>(cx){
+      let mut ctx = c2d.borrow_mut();
+      let pict = ctx.get_picture(None).unwrap();
+      let bounds = ctx.bounds;
+      self.pict = pict;
+      self.dims = (bounds.width(), bounds.height());
+      self.context.window().request_redraw();
+    }
+  }
+
   fn update(&mut self, cx:&mut FunctionContext, result:Handle<JsValue>) -> Option<bool>{
     if let Ok(array) = result.downcast::<JsArray, _>(cx){
       if let Ok(vals) = array.to_vec(cx){
@@ -196,6 +207,8 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let mut view = View::new(&runloop, context, &title);
 
   let mut frame = 0;
+  let mut last = std::time::Instant::now();
+  let dt = std::time::Duration::from_millis(1000/60);
   let mut modifiers = ModifiersState::empty();
   let mut repeats:HashMap<VirtualKeyCode, i32> = HashMap::new();
 
@@ -207,6 +220,12 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
 
     match event {
       Event::LoopDestroyed => (),
+      Event::NewEvents(StartCause::ResumeTimeReached{start, requested_resume}) => {
+        // println!("loop: fps {:?} {:?}", start, requested_resume);
+      },
+      Event::NewEvents(StartCause::WaitCancelled{start, requested_resume}) => {
+        // println!("loop: event {:?} {:?}", start, requested_resume);
+      }
       Event::WindowEvent { event, window_id } => match event {
         WindowEvent::Moved(physical_pt) => {
           let logical_pt:LogicalPosition<u32> = LogicalPosition::from_physical(physical_pt, view.dpr());
@@ -295,9 +314,27 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         _ => (),
       },
       Event::RedrawRequested(window_id) => {
-          view.redraw();
+        view.redraw();
       }
-      _ => (),
+      _ => {
+
+        if last.elapsed() > dt{
+          let now = std::time::Instant::now();
+          let args = vec![
+            cx.string("frame").upcast::<JsValue>(),
+            cx.number(frame as f64).upcast::<JsValue>(),
+          ];
+          if let Ok(result) = animate.call(&mut cx, that, args){
+            view.animate(&mut cx, result);
+          }
+
+          frame += 1;
+          last = now;
+        }
+
+        *control_flow = ControlFlow::WaitUntil(last + dt);
+
+      },
     }
 
     if let Some(args) = js_event{
