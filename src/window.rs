@@ -5,6 +5,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::time::{Instant, Duration};
 use neon::prelude::*;
 
 use skia_safe::gpu::gl::FramebufferInfo;
@@ -134,11 +135,13 @@ impl View{
       let bounds = ctx.bounds;
       self.pict = pict;
       self.dims = (bounds.width(), bounds.height());
-      self.context.window().request_redraw();
     }
   }
 
-  fn update(&mut self, cx:&mut FunctionContext, result:Handle<JsValue>) -> Option<bool>{
+  fn update(&mut self, cx:&mut FunctionContext, result:Handle<JsValue>) -> (bool, bool){
+    let mut to_fullscreen = false;
+    let mut should_quit = false;
+
     if let Ok(array) = result.downcast::<JsArray, _>(cx){
       if let Ok(vals) = array.to_vec(cx){
 
@@ -156,7 +159,7 @@ impl View{
         }
 
         if let Ok(active) = vals[2].downcast::<JsBoolean, _>(cx){
-          if !active.value(cx){ return Some(true) }
+          if !active.value(cx){ should_quit = true }
         }
 
         if let Ok(is_full) = vals[3].downcast::<JsBoolean, _>(cx){
@@ -168,6 +171,7 @@ impl View{
               false => self.context.window().set_fullscreen( None )
             }
           }
+          to_fullscreen = is_full
         }
 
         let dpr = self.dpr() as f32;
@@ -187,13 +191,20 @@ impl View{
             let size = PhysicalSize::<u32>::new(*width, *height);
             self.context.window().set_inner_size(size)
           }
-
         }
 
       }
     }
-    None
+
+    (should_quit, to_fullscreen)
   }
+}
+
+enum StateChange{
+  Position(LogicalPosition<i32>),
+  Size(LogicalSize<u32>),
+  Fullscreen(bool),
+  Keyboard{event:String, key:String, code:u32, repeat:bool},
 }
 
 pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
@@ -206,44 +217,50 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let mut runloop = EventLoop::new();
   let mut view = View::new(&runloop, context, &title);
 
+  // animation
   let mut frame = 0;
-  let mut last = std::time::Instant::now();
-  let dt = std::time::Duration::from_millis(1000/60);
+  let mut last_frame = Instant::now();
+  let frame_time = Duration::from_millis(1000/60);
+  let redraw_time = frame_time - Duration::from_millis(2);
+
+  // key events
   let mut modifiers = ModifiersState::empty();
   let mut repeats:HashMap<VirtualKeyCode, i32> = HashMap::new();
+  let mut is_fullscreen = false;
+  let mut change_queue = vec![];
+  let mut rendered = true;
 
   runloop.run_return(|event, _, control_flow| {
     // println!("{:?}", event);
-    *control_flow = ControlFlow::Wait;
-
-    let mut js_event = None;
 
     match event {
       Event::LoopDestroyed => (),
-      Event::NewEvents(StartCause::ResumeTimeReached{start, requested_resume}) => {
-        // println!("loop: fps {:?} {:?}", start, requested_resume);
-      },
-      Event::NewEvents(StartCause::WaitCancelled{start, requested_resume}) => {
-        // println!("loop: event {:?} {:?}", start, requested_resume);
+      Event::NewEvents(start_cause) => {
+
+        if rendered{
+          let dt = last_frame.elapsed();
+          if dt >= frame_time{
+            view.context.window().request_redraw();
+          }else if dt >= redraw_time {
+            *control_flow = ControlFlow::Poll;
+          }else{
+            *control_flow = ControlFlow::WaitUntil(last_frame + redraw_time);
+          }
+        }
       }
       Event::WindowEvent { event, window_id } => match event {
         WindowEvent::Moved(physical_pt) => {
-          let logical_pt:LogicalPosition<u32> = LogicalPosition::from_physical(physical_pt, view.dpr());
-          js_event = Some(vec![
-            cx.string("move").upcast::<JsValue>(),
-            cx.number(logical_pt.x).upcast::<JsValue>(),
-            cx.number(logical_pt.y).upcast::<JsValue>(),
-          ]);
+          let logical_pt:LogicalPosition<i32> = LogicalPosition::from_physical(physical_pt, view.dpr());
+          change_queue.push(StateChange::Position(logical_pt));
         }
 
         WindowEvent::Resized(physical_size) => {
           let logical_size:LogicalSize<u32> = LogicalSize::from_physical(physical_size, view.dpr());
-          js_event = Some(vec![
-            cx.string("resize").upcast::<JsValue>(),
-            cx.number(logical_size.width).upcast::<JsValue>(),
-            cx.number(logical_size.height).upcast::<JsValue>(),
-          ]);
+          change_queue.push(StateChange::Size(logical_size));
 
+          if is_fullscreen != view.context.window().fullscreen().is_some() {
+            change_queue.push(StateChange::Fullscreen(!is_fullscreen));
+          }
           view.resize(physical_size);
         }
 
@@ -268,21 +285,17 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
           if keycode==VirtualKeyCode::Escape {
             if view.context.window().fullscreen().is_some(){
               view.context.window().set_fullscreen(None);
-              js_event = Some(vec![
-                cx.string("fullscreen").upcast::<JsValue>(),
-                cx.boolean(false).upcast::<JsValue>()
-              ])
+              change_queue.push(StateChange::Fullscreen(false));
             }else{
               *control_flow = ControlFlow::Exit
             }
           }else if modifiers.logo() && keycode==VirtualKeyCode::Q{
             *control_flow = ControlFlow::Exit
           }else if modifiers.logo() && keycode==VirtualKeyCode::F{
-            view.context.window().set_fullscreen( Some(Fullscreen::Borderless(None)) );
-            js_event = Some(vec![
-              cx.string("fullscreen").upcast::<JsValue>(),
-              cx.boolean(true).upcast::<JsValue>()
-            ])
+            if !is_fullscreen{
+              view.context.window().set_fullscreen( Some(Fullscreen::Borderless(None)) );
+              change_queue.push(StateChange::Fullscreen(true));
+            }
           }else{
             let (event_type, count) = match state{
               ElementState::Pressed => {
@@ -297,54 +310,100 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
             };
 
             if event_type == "keyup" || count < 2{
-              js_event = Some(vec![
-                cx.string(event_type).upcast::<JsValue>(),             // keyup | keydown
-                cx.string(from_key_code(keycode)).upcast::<JsValue>(), // key
-                cx.number(scancode).upcast::<JsValue>(),               // code
-                cx.boolean(count > 0).upcast::<JsValue>(),             // repeat
-                cx.boolean(modifiers.alt()).upcast::<JsValue>(),       // altKey
-                cx.boolean(modifiers.ctrl()).upcast::<JsValue>(),      // ctrlKey
-                cx.boolean(modifiers.logo()).upcast::<JsValue>(),      // metaKey
-                cx.boolean(modifiers.shift()).upcast::<JsValue>(),     // shiftKey
-              ]);
+              // println!("{} {} {}", event_type, from_key_code(keycode), count > 0);
+              change_queue.push(StateChange::Keyboard{
+                event: event_type.to_string(),
+                key: from_key_code(keycode),
+                code: scancode,
+                repeat: count > 0
+              });
             }
           }
 
         }
         _ => (),
       },
+      Event::MainEventsCleared => {
+
+        if !change_queue.is_empty(){
+          // x, y, w, h, full, key_updn, key, code, count, alt, ctrl, meta, shift
+          let mut payload:Vec<Handle<JsValue>> = (0..13).map(|i|
+            cx.undefined().upcast::<JsValue>()
+          ).collect();
+
+          for change in &change_queue {
+            match change{
+              StateChange::Position(LogicalPosition{x, y}) => {
+                payload[0] = cx.number(*x).upcast::<JsValue>(); // x
+                payload[1] = cx.number(*y).upcast::<JsValue>(); // y
+              }
+              StateChange::Size(LogicalSize{width, height}) => {
+                payload[2] = cx.number(*width).upcast::<JsValue>();  // width
+                payload[3] = cx.number(*height).upcast::<JsValue>(); // height
+              }
+              StateChange::Fullscreen(flag) => {
+                payload[4] = cx.boolean(*flag).upcast::<JsValue>(); // fullscreen
+                is_fullscreen = *flag;
+              }
+              StateChange::Keyboard{event, key, code, repeat} => {
+                payload[5] = cx.string(event).upcast::<JsValue>();               // keyup | keydown
+                payload[6] = cx.string(key).upcast::<JsValue>();                 // key
+                payload[7] = cx.number(*code).upcast::<JsValue>();               // code
+                payload[8] = cx.boolean(*repeat).upcast::<JsValue>();            // repeat
+                payload[9] = cx.boolean(modifiers.alt()).upcast::<JsValue>();    // altKey
+                payload[10] = cx.boolean(modifiers.ctrl()).upcast::<JsValue>();  // ctrlKey
+                payload[11] = cx.boolean(modifiers.logo()).upcast::<JsValue>();  // metaKey
+                payload[12] = cx.boolean(modifiers.shift()).upcast::<JsValue>(); // shiftKey
+              }
+            }
+          }
+
+          // relay UI event-related state changes
+          if let Ok(result) = callback.call(&mut cx, that, payload){
+            let (should_quit, to_fullscreen) = view.update(&mut cx, result);
+            is_fullscreen = to_fullscreen;
+
+            if should_quit{
+              *control_flow = ControlFlow::Exit
+            }
+          }
+          change_queue.clear();
+        }
+
+      }
       Event::RedrawRequested(window_id) => {
         view.redraw();
-      }
-      _ => {
+        rendered = false;
+      },
+      Event::RedrawEventsCleared => {
 
-        if last.elapsed() > dt{
-          let now = std::time::Instant::now();
+        if !rendered{
+          last_frame = Instant::now();
+
+          // trigger the `frame` event
           let args = vec![
             cx.string("frame").upcast::<JsValue>(),
             cx.number(frame as f64).upcast::<JsValue>(),
           ];
-          if let Ok(result) = animate.call(&mut cx, that, args){
-            view.animate(&mut cx, result);
+          match animate.call(&mut cx, that, args){
+            Ok(result) => {
+              view.animate(&mut cx, result);
+              rendered = true;
+              frame += 1;
+            },
+            Err(e) => {
+              println!("Error {}", e);
+              *control_flow = ControlFlow::Exit;
+            }
           }
-
-          frame += 1;
-          last = now;
         }
 
-        *control_flow = ControlFlow::WaitUntil(last + dt);
+      },
+      _ => {
 
       },
     }
 
-    if let Some(args) = js_event{
-      if let Ok(result) = callback.call(&mut cx, that, args){
-        let should_quit = view.update(&mut cx, result);
-        if should_quit.is_some(){
-          *control_flow = ControlFlow::Exit
-        }
-      }
-    }
   });
 
   Ok(cx.undefined())
