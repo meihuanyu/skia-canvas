@@ -128,19 +128,38 @@ impl View{
     self.context.swap_buffers().unwrap();
   }
 
-  fn animate(&mut self, cx:&mut FunctionContext, result:Handle<JsValue>){
-    if let Ok(c2d) = result.downcast::<BoxedContext2D, _>(cx){
-      let mut ctx = c2d.borrow_mut();
-      let pict = ctx.get_picture(None).unwrap();
-      let bounds = ctx.bounds;
-      self.pict = pict;
-      self.dims = (bounds.width(), bounds.height());
+  fn animate(&mut self, cx:&mut FunctionContext, result:Handle<JsValue>) -> (bool, bool){
+    let mut should_quit = false;
+    let mut should_loop = true;
+
+    if let Ok(array) = result.downcast::<JsArray, _>(cx){
+      if let Ok(vals) = array.to_vec(cx){
+
+        if let Ok(c2d) = vals[0].downcast::<BoxedContext2D, _>(cx){
+          let mut ctx = c2d.borrow_mut();
+          let pict = ctx.get_picture(None).unwrap();
+          let bounds = ctx.bounds;
+          self.pict = pict;
+          self.dims = (bounds.width(), bounds.height());
+        }
+
+        if let Ok(active) = vals[1].downcast::<JsBoolean, _>(cx){
+          if !active.value(cx){ should_quit = true }
+        }
+
+        if let Ok(keep_looping) = vals[2].downcast::<JsBoolean, _>(cx){
+          should_loop = keep_looping.value(cx);
+        }
+
+      }
     }
+    (should_quit, should_loop)
   }
 
-  fn update(&mut self, cx:&mut FunctionContext, result:Handle<JsValue>) -> (bool, bool){
-    let mut to_fullscreen = false;
+  fn update(&mut self, cx:&mut FunctionContext, result:Handle<JsValue>) -> (bool, bool, bool){
     let mut should_quit = false;
+    let mut should_loop = false;
+    let mut to_fullscreen = false;
 
     if let Ok(array) = result.downcast::<JsArray, _>(cx){
       if let Ok(vals) = array.to_vec(cx){
@@ -174,9 +193,13 @@ impl View{
           to_fullscreen = is_full
         }
 
+        if let Ok(keep_looping) = vals[4].downcast::<JsBoolean, _>(cx){
+          should_loop = keep_looping.value(cx);
+        }
+
         let dpr = self.dpr() as f32;
         let old_pos = self.context.window().outer_position().unwrap();
-        let new_pos:Vec<i32> = floats_in(cx, &vals[4..6]).iter().map(|d| (*d * dpr) as i32).collect();
+        let new_pos:Vec<i32> = floats_in(cx, &vals[5..7]).iter().map(|d| (*d * dpr) as i32).collect();
         if let [x, y] = new_pos.as_slice(){
           if *x != old_pos.x || *y != old_pos.y{
             let position = PhysicalPosition::<i32>::new(*x, *y);
@@ -185,7 +208,7 @@ impl View{
         }
 
         let old_dims = self.context.window().inner_size();
-        let new_dims:Vec<u32> = floats_in(cx, &vals[6..8]).iter().map(|d| (*d * dpr) as u32).collect();
+        let new_dims:Vec<u32> = floats_in(cx, &vals[7..9]).iter().map(|d| (*d * dpr) as u32).collect();
         if let [width, height] = new_dims.as_slice(){
           if *width != old_dims.width || *height != old_dims.height{
             let size = PhysicalSize::<u32>::new(*width, *height);
@@ -196,7 +219,7 @@ impl View{
       }
     }
 
-    (should_quit, to_fullscreen)
+    (should_quit, should_loop, to_fullscreen)
   }
 }
 
@@ -204,6 +227,7 @@ enum StateChange{
   Position(LogicalPosition<i32>),
   Size(LogicalSize<u32>),
   Fullscreen(bool),
+  Input(char),
   Keyboard{event:String, key:String, code:u32, repeat:bool},
 }
 
@@ -212,8 +236,9 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let title = cx.argument::<JsString>(1)?.value(&mut cx);
   let callback = cx.argument::<JsFunction>(2)?;
   let animate = cx.argument::<JsFunction>(3)?;
-  let that = cx.null();
+  let init_loop = cx.argument::<JsBoolean>(4)?.value(&mut cx);
 
+  let that = cx.null();
   let mut runloop = EventLoop::new();
   let mut view = View::new(&runloop, context, &title);
 
@@ -226,18 +251,22 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   // key events
   let mut modifiers = ModifiersState::empty();
   let mut repeats:HashMap<VirtualKeyCode, i32> = HashMap::new();
+
+  // runloop state
   let mut is_fullscreen = false;
+  let mut is_animated = init_loop;
+  let mut is_done = false;
   let mut change_queue = vec![];
-  let mut rendered = true;
+  let mut did_render = true;
 
   runloop.run_return(|event, _, control_flow| {
     // println!("{:?}", event);
 
     match event {
-      Event::LoopDestroyed => (),
       Event::NewEvents(start_cause) => {
-
-        if rendered{
+        if is_done{
+          *control_flow = ControlFlow::Exit;
+        }else if did_render{
           let dt = last_frame.elapsed();
           if dt >= frame_time{
             view.context.window().request_redraw();
@@ -269,7 +298,11 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         }
 
         WindowEvent::CloseRequested => {
-          *control_flow = ControlFlow::Exit
+          is_done = true;
+        }
+
+        WindowEvent::ReceivedCharacter(character) => {
+          change_queue.push(StateChange::Input(character));
         }
 
         WindowEvent::KeyboardInput {
@@ -287,11 +320,11 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
               view.context.window().set_fullscreen(None);
               change_queue.push(StateChange::Fullscreen(false));
             }else{
-              *control_flow = ControlFlow::Exit
+              is_done = true;
             }
           }else if modifiers.logo() && keycode==VirtualKeyCode::Q{
-            *control_flow = ControlFlow::Exit
-          }else if modifiers.logo() && keycode==VirtualKeyCode::F{
+            is_done = true;
+        }else if modifiers.logo() && keycode==VirtualKeyCode::F{
             if !is_fullscreen{
               view.context.window().set_fullscreen( Some(Fullscreen::Borderless(None)) );
               change_queue.push(StateChange::Fullscreen(true));
@@ -310,7 +343,6 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
             };
 
             if event_type == "keyup" || count < 2{
-              // println!("{} {} {}", event_type, from_key_code(keycode), count > 0);
               change_queue.push(StateChange::Keyboard{
                 event: event_type.to_string(),
                 key: from_key_code(keycode),
@@ -324,10 +356,10 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         _ => (),
       },
       Event::MainEventsCleared => {
-
+        // relay the queued events to js
         if !change_queue.is_empty(){
-          // x, y, w, h, full, key_updn, key, code, count, alt, ctrl, meta, shift
-          let mut payload:Vec<Handle<JsValue>> = (0..13).map(|i|
+          // x, y, w, h, full, input, key_updn, key, code, count, alt, ctrl, meta, shift
+          let mut payload:Vec<Handle<JsValue>> = (0..14).map(|i|
             cx.undefined().upcast::<JsValue>()
           ).collect();
 
@@ -345,27 +377,28 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
                 payload[4] = cx.boolean(*flag).upcast::<JsValue>(); // fullscreen
                 is_fullscreen = *flag;
               }
+              StateChange::Input(character) => {
+                payload[5] = cx.string(character.to_string()).upcast::<JsValue>(); // input
+              }
               StateChange::Keyboard{event, key, code, repeat} => {
-                payload[5] = cx.string(event).upcast::<JsValue>();               // keyup | keydown
-                payload[6] = cx.string(key).upcast::<JsValue>();                 // key
-                payload[7] = cx.number(*code).upcast::<JsValue>();               // code
-                payload[8] = cx.boolean(*repeat).upcast::<JsValue>();            // repeat
-                payload[9] = cx.boolean(modifiers.alt()).upcast::<JsValue>();    // altKey
-                payload[10] = cx.boolean(modifiers.ctrl()).upcast::<JsValue>();  // ctrlKey
-                payload[11] = cx.boolean(modifiers.logo()).upcast::<JsValue>();  // metaKey
-                payload[12] = cx.boolean(modifiers.shift()).upcast::<JsValue>(); // shiftKey
+                payload[6] = cx.string(event).upcast::<JsValue>();               // keyup | keydown
+                payload[7] = cx.string(key).upcast::<JsValue>();                 // key
+                payload[8] = cx.number(*code).upcast::<JsValue>();               // code
+                payload[9] = cx.boolean(*repeat).upcast::<JsValue>();            // repeat
+                payload[10] = cx.boolean(modifiers.alt()).upcast::<JsValue>();   // altKey
+                payload[11] = cx.boolean(modifiers.ctrl()).upcast::<JsValue>();  // ctrlKey
+                payload[12] = cx.boolean(modifiers.logo()).upcast::<JsValue>();  // metaKey
+                payload[13] = cx.boolean(modifiers.shift()).upcast::<JsValue>(); // shiftKey
               }
             }
           }
 
           // relay UI event-related state changes
           if let Ok(result) = callback.call(&mut cx, that, payload){
-            let (should_quit, to_fullscreen) = view.update(&mut cx, result);
+            let (should_quit, keep_looping, to_fullscreen) = view.update(&mut cx, result);
             is_fullscreen = to_fullscreen;
-
-            if should_quit{
-              *control_flow = ControlFlow::Exit
-            }
+            is_animated = keep_looping;
+            is_done = should_quit;
           }
           change_queue.clear();
         }
@@ -373,35 +406,33 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
       }
       Event::RedrawRequested(window_id) => {
         view.redraw();
-        rendered = false;
+        did_render = false;
       },
       Event::RedrawEventsCleared => {
 
-        if !rendered{
+        // trigger the `frame` event
+        if !did_render && is_animated{
           last_frame = Instant::now();
-
-          // trigger the `frame` event
           let args = vec![
-            cx.string("frame").upcast::<JsValue>(),
             cx.number(frame as f64).upcast::<JsValue>(),
           ];
           match animate.call(&mut cx, that, args){
             Ok(result) => {
-              view.animate(&mut cx, result);
-              rendered = true;
+              let (should_quit, keep_looping) = view.animate(&mut cx, result);
+              is_animated = keep_looping;
+              is_done = should_quit;
+              did_render = true;
               frame += 1;
             },
             Err(e) => {
               println!("Error {}", e);
-              *control_flow = ControlFlow::Exit;
+              is_done = true;
             }
           }
         }
 
       },
-      _ => {
-
-      },
+      _ => {}
     }
 
   });
