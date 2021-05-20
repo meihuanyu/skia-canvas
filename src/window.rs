@@ -135,9 +135,9 @@ impl View{
     self.context.swap_buffers().unwrap();
   }
 
-  fn animate(&mut self, cx:&mut FunctionContext, result:Handle<JsValue>) -> (bool, bool){
+  fn animate(&mut self, cx:&mut FunctionContext, result:Handle<JsValue>) -> (bool, u64){
     let mut should_quit = false;
-    let mut should_loop = true;
+    let mut to_fps = 0;
 
     if let Ok(array) = result.downcast::<JsArray, _>(cx){
       if let Ok(vals) = array.to_vec(cx){
@@ -154,19 +154,19 @@ impl View{
           if !active.value(cx){ should_quit = true }
         }
 
-        if let Ok(keep_looping) = vals[2].downcast::<JsBoolean, _>(cx){
-          should_loop = keep_looping.value(cx);
+        if let Ok(fps) = vals[2].downcast::<JsNumber, _>(cx){
+          to_fps = fps.value(cx) as u64;
         }
 
       }
     }
-    (should_quit, should_loop)
+    (should_quit, to_fps)
   }
 
-  fn update(&mut self, cx:&mut FunctionContext, result:Handle<JsValue>) -> (bool, bool, bool){
+  fn handle_events(&mut self, cx:&mut FunctionContext, result:Handle<JsValue>) -> (bool, bool, u64){
     let mut should_quit = false;
-    let mut should_loop = false;
     let mut to_fullscreen = false;
+    let mut to_fps = 0;
 
     if let Ok(array) = result.downcast::<JsArray, _>(cx){
       if let Ok(vals) = array.to_vec(cx){
@@ -200,8 +200,8 @@ impl View{
           to_fullscreen = is_full
         }
 
-        if let Ok(keep_looping) = vals[4].downcast::<JsBoolean, _>(cx){
-          should_loop = keep_looping.value(cx);
+        if let Ok(fps) = vals[4].downcast::<JsNumber, _>(cx){
+          to_fps = fps.value(cx) as u64;
         }
 
         let dpr = self.dpr() as f32;
@@ -226,8 +226,37 @@ impl View{
       }
     }
 
-    (should_quit, should_loop, to_fullscreen)
+    (should_quit, to_fullscreen, to_fps)
   }
+}
+
+struct Cadence{
+  fps: u64,
+  last: Instant,
+  shutter: Duration,
+}
+
+impl Cadence{
+  fn new() -> Self {
+    let fps = 60;
+    let last = Instant::now();
+    let shutter = Duration::from_micros(1_000_000/fps);
+    Cadence{fps, last, shutter}
+  }
+
+  fn next(&mut self){
+    self.last = Instant::now();
+  }
+
+  fn set_frame_rate(&mut self, refresh_rate:u64) -> bool{
+    self.shutter = Duration::from_micros(1_000_000/refresh_rate.max(1));
+    self.fps = refresh_rate;
+    refresh_rate > 0
+  }
+
+  fn render(&self) -> bool{   self.last.elapsed() >= self.shutter }
+  fn wakeup(&self) -> bool{   self.last.elapsed() >= self.shutter * 9/10 }
+  fn sleep(&self) -> Instant{ self.last            + self.shutter * 9/10 }
 }
 
 enum StateChange{
@@ -245,28 +274,25 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let title = cx.argument::<JsString>(1)?.value(&mut cx);
   let callback = cx.argument::<JsFunction>(2)?;
   let animate = cx.argument::<JsFunction>(3)?;
-  let init_loop = cx.argument::<JsBoolean>(4)?.value(&mut cx);
+  let init_fps = cx.argument::<JsNumber>(4)?.value(&mut cx) as u64;
 
-  let that = cx.null();
   let mut runloop = EventLoop::new();
   let mut view = View::new(&runloop, context, &title);
+  let null = cx.null();
 
   // animation
-  let mut last_frame = Instant::now();
-  let mut frames_per_second = 60;
-  let frame_time = Duration::from_micros(1_000_000/frames_per_second);
-  let wakeup_time = frame_time - Duration::from_millis(2);
+  let mut cadence = Cadence::new();
+  let mut is_animated = cadence.set_frame_rate(init_fps);
 
   // key events
   let mut modifiers = ModifiersState::empty();
   let mut repeats:HashMap<VirtualKeyCode, i32> = HashMap::new();
 
   // runloop state
-  let mut is_fullscreen = false;
-  let mut is_animated = init_loop;
-  let mut is_done = false;
   let mut change_queue = vec![];
   let mut needs_render = true;
+  let mut is_fullscreen = false;
+  let mut is_done = false;
 
   runloop.run_return(|event, _, control_flow| {
     // println!("{:?}", event);
@@ -276,14 +302,13 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         if is_done{
           *control_flow = ControlFlow::Exit;
         }else if is_animated{
-          let dt = last_frame.elapsed();
-          if dt >= frame_time{
-            last_frame = Instant::now();
+          if cadence.render(){
+            cadence.next();
             view.context.window().request_redraw();
-          }else if dt >= wakeup_time {
+          }else if cadence.wakeup(){
             *control_flow = ControlFlow::Poll;
           }else{
-            *control_flow = ControlFlow::WaitUntil(last_frame + wakeup_time);
+            *control_flow = ControlFlow::WaitUntil(cadence.sleep());
           }
         }
       }
@@ -433,10 +458,10 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
           }
 
           // relay UI event-related state changes
-          if let Ok(result) = callback.call(&mut cx, that, payload){
-            let (should_quit, keep_looping, to_fullscreen) = view.update(&mut cx, result);
+          if let Ok(result) = callback.call(&mut cx, null, payload){
+            let (should_quit, to_fullscreen, to_fps) = view.handle_events(&mut cx, result);
+            is_animated = cadence.set_frame_rate(to_fps);
             is_fullscreen = to_fullscreen;
-            is_animated = keep_looping;
             is_done = should_quit;
           }
           change_queue.clear();
@@ -448,12 +473,12 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         needs_render = true;
       },
       Event::RedrawEventsCleared => {
-        // trigger the `frame` event
         if needs_render && is_animated{
+          // call the `frame` event handler
           match animate.call(&mut cx, null, argv()){
             Ok(result) => {
-              let (should_quit, keep_looping) = view.animate(&mut cx, result);
-              is_animated = keep_looping;
+              let (should_quit, to_fps) = view.animate(&mut cx, result);
+              is_animated = cadence.set_frame_rate(to_fps);
               is_done = should_quit;
               needs_render = false;
             },
