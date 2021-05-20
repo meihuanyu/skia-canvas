@@ -27,12 +27,13 @@ use crate::utils::*;
 type WindowedContext = glutin::ContextWrapper<glutin::PossiblyCurrent, glutin::window::Window>;
 
 struct View{
-  pict:Picture,
-  dims:(f32, f32),
-  title:String,
-  context:WindowedContext,
-  surface:RefCell<Surface>,
-  gl:RefCell<DirectContext>,
+  ident: (usize, usize),
+  pict: Picture,
+  dims: (f32, f32),
+  title: String,
+  context: WindowedContext,
+  surface: RefCell<Surface>,
+  gl: RefCell<DirectContext>,
 }
 
 impl View{
@@ -53,11 +54,13 @@ impl View{
     let bounds = ctx.bounds;
     let (width, height) = (bounds.width(), bounds.height());
     let size = LogicalSize::new(width, height);
+
     context.window().set_inner_size(size);
 
     let (gl, surface) = View::gl_surface(&context);
     View{
       context,
+      ident: ctx.ident(),
       title: title.to_string(),
       pict: ctx.get_picture(None).unwrap(),
       dims: (width, height),
@@ -142,10 +145,13 @@ impl View{
 
         if let Ok(c2d) = vals[0].downcast::<BoxedContext2D, _>(cx){
           let mut ctx = c2d.borrow_mut();
-          let pict = ctx.get_picture(None).unwrap();
-          let bounds = ctx.bounds;
-          self.pict = pict;
-          self.dims = (bounds.width(), bounds.height());
+          if self.ident != ctx.ident(){
+            let pict = ctx.get_picture(None).unwrap();
+            let bounds = ctx.bounds;
+            self.pict = pict;
+            self.dims = (bounds.width(), bounds.height());
+            self.ident = ctx.ident();
+          }
         }
 
         if let Ok(active) = vals[1].downcast::<JsBoolean, _>(cx){
@@ -171,15 +177,21 @@ impl View{
 
         if let Ok(c2d) = vals[0].downcast::<BoxedContext2D, _>(cx){
           let mut ctx = c2d.borrow_mut();
-          let pict = ctx.get_picture(None).unwrap();
-          let bounds = ctx.bounds;
-          self.pict = pict;
-          self.dims = (bounds.width(), bounds.height());
+          if self.ident != ctx.ident(){
+            let pict = ctx.get_picture(None).unwrap();
+            let bounds = ctx.bounds;
+            self.pict = pict;
+            self.dims = (bounds.width(), bounds.height());
+            self.ident = ctx.ident();
+          }
         }
 
         if let Ok(title) = vals[1].downcast::<JsString, _>(cx){
-          self.title = title.value(cx);
-          self.context.window().set_title(&self.title);
+          let title = title.value(cx);
+          if self.title != title{
+            self.title = title;
+            self.context.window().set_title(&self.title);
+          }
         }
 
         if let Ok(active) = vals[2].downcast::<JsBoolean, _>(cx){
