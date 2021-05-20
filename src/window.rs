@@ -252,7 +252,6 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let mut view = View::new(&runloop, context, &title);
 
   // animation
-  let mut frame = 0;
   let mut last_frame = Instant::now();
   let mut frames_per_second = 60;
   let frame_time = Duration::from_micros(1_000_000/frames_per_second);
@@ -451,16 +450,12 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
       Event::RedrawEventsCleared => {
         // trigger the `frame` event
         if needs_render && is_animated{
-          let args = vec![
-            cx.number(frame as f64).upcast::<JsValue>(),
-          ];
-          match animate.call(&mut cx, that, args){
+          match animate.call(&mut cx, null, argv()){
             Ok(result) => {
               let (should_quit, keep_looping) = view.animate(&mut cx, result);
               is_animated = keep_looping;
               is_done = should_quit;
               needs_render = false;
-              frame += 1;
             },
             Err(e) => {
               println!("Error {}", e);
