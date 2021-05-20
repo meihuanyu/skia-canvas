@@ -232,6 +232,22 @@ impl View{
           }
         }
 
+        if let Ok(cursor_style) = vals[9].downcast::<JsString, _>(cx){
+          let cursor_style = cursor_style.value(cx);
+          match to_cursor_icon(&cursor_style){
+            Some(icon) => {
+              self.context.window().set_cursor_icon(icon);
+              self.context.window().set_cursor_visible(true);
+            },
+            None => {
+              if cursor_style == "none" {
+                self.context.window().set_cursor_visible(false);
+              }
+            }
+          }
+        }
+
+
       }
     }
 
