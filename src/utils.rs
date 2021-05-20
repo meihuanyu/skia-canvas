@@ -28,10 +28,10 @@ fn arg_num(o:usize) -> String{
   format!("{}{}", n, suffix)
 }
 
-// pub fn argv<'a>() -> Vec<Handle<'a, JsValue>>{
-//   let list:Vec<Handle<JsValue>> = Vec::new();
-//   list
-// }
+pub fn argv<'a>() -> Vec<Handle<'a, JsValue>>{
+  let list:Vec<Handle<JsValue>> = Vec::new();
+  list
+}
 
 // pub fn clamp(val: f32, min:f64, max:f64) -> f32{
 //   let min = min as f32;
