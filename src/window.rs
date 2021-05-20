@@ -377,7 +377,7 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         }
 
         WindowEvent::CursorEntered{..} => {
-          let mouse_event = "mouseleave".to_string();
+          let mouse_event = "mouseenter".to_string();
           change_queue.push(StateChange::Mouse(mouse_event));
         }
 
