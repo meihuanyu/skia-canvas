@@ -520,9 +520,14 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
             if to_fullscreen != is_fullscreen{
               repeats.clear(); // keyups don't get delivered during the transition apparently?
             }
+
             is_animated = cadence.set_frame_rate(to_fps);
             is_fullscreen = to_fullscreen;
             is_done = should_quit;
+
+            if !is_animated{
+              view.context.window().request_redraw();
+            }
           }
 
           change_queue.clear();
