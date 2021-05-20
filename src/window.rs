@@ -236,6 +236,8 @@ enum StateChange{
   Fullscreen(bool),
   Input(char),
   Keyboard{event:String, key:String, code:u32, repeat:bool},
+  MouseOver(bool),
+  MouseMove(LogicalPosition<i32>),
 }
 
 pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
@@ -313,6 +315,16 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         WindowEvent::ReceivedCharacter(character) => {
           change_queue.push(StateChange::Input(character));
         }
+        WindowEvent::CursorEntered{..} => {
+          change_queue.push(StateChange::MouseOver(true));
+        }
+        WindowEvent::CursorLeft{..} => {
+          change_queue.push(StateChange::MouseOver(false));
+        }
+        WindowEvent::CursorMoved{position, ..} => {
+          let logical_pt:LogicalPosition<i32> = LogicalPosition::from_physical(position, view.dpr());
+          change_queue.push(StateChange::MouseMove(logical_pt));
+        }
 
         WindowEvent::KeyboardInput {
           input:
@@ -367,7 +379,9 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
       Event::MainEventsCleared => {
         // relay the queued events to js
         if !change_queue.is_empty(){
-          // x, y, w, h, full, input, key_updn, key, code, count, alt, ctrl, meta, shift
+          //  0–4: x, y, w, h, full,
+          //  5–7: input, key_event, [key, code, repeat, alt, ctrl, meta, shift],
+          // 8–10: mouse_event, mouse_x, mouse_y
           let mut payload:Vec<Handle<JsValue>> = (0..14).map(|i|
             cx.undefined().upcast::<JsValue>()
           ).collect();
@@ -390,14 +404,31 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
                 payload[5] = cx.string(character.to_string()).upcast::<JsValue>(); // input
               }
               StateChange::Keyboard{event, key, code, repeat} => {
-                payload[6] = cx.string(event).upcast::<JsValue>();               // keyup | keydown
-                payload[7] = cx.string(key).upcast::<JsValue>();                 // key
-                payload[8] = cx.number(*code).upcast::<JsValue>();               // code
-                payload[9] = cx.boolean(*repeat).upcast::<JsValue>();            // repeat
-                payload[10] = cx.boolean(modifiers.alt()).upcast::<JsValue>();   // altKey
-                payload[11] = cx.boolean(modifiers.ctrl()).upcast::<JsValue>();  // ctrlKey
-                payload[12] = cx.boolean(modifiers.logo()).upcast::<JsValue>();  // metaKey
-                payload[13] = cx.boolean(modifiers.shift()).upcast::<JsValue>(); // shiftKey
+                let key_info = JsArray::new(&mut cx, 7);
+                let key_info_vec = vec![
+                  cx.string(key).upcast::<JsValue>(),                // key
+                  cx.number(*code).upcast::<JsValue>(),              // code
+                  cx.boolean(*repeat).upcast::<JsValue>(),           // repeat
+                  cx.boolean(modifiers.alt()).upcast::<JsValue>(),   // altKey
+                  cx.boolean(modifiers.ctrl()).upcast::<JsValue>(),  // ctrlKey
+                  cx.boolean(modifiers.logo()).upcast::<JsValue>(),  // metaKey
+                  cx.boolean(modifiers.shift()).upcast::<JsValue>(), // shiftKey
+                ];
+                for (i, obj) in key_info_vec.iter().enumerate() {
+                    key_info.set(&mut cx, i as u32, *obj).unwrap();
+                }
+                payload[6] = cx.string(event).upcast::<JsValue>(); // keyup | keydown
+                payload[7] = key_info.upcast::<JsValue>();
+              }
+              StateChange::MouseOver(is_over) => {
+                let mouse_event = if *is_over{ "mouseenter" }else{ "mouseleave" };
+                payload[8] = cx.string(mouse_event).upcast::<JsValue>();
+              }
+
+              StateChange::MouseMove(LogicalPosition{x, y}) => {
+                payload[9] = cx.number(*x).upcast::<JsValue>(); // mouseX
+                payload[10] = cx.number(*y).upcast::<JsValue>(); // mouseY
+
               }
             }
           }
