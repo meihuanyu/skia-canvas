@@ -33,11 +33,15 @@ struct View{
   context: WindowedContext,
   surface: RefCell<Surface>,
   gl: RefCell<DirectContext>,
+  backdrop: Color
 }
 
 impl View{
-  fn new(runloop:&EventLoop<()>, c2d:Handle<BoxedContext2D>, title:&str) -> Self{
-    let wb = WindowBuilder::new().with_title(title);
+  fn new(runloop:&EventLoop<()>, c2d:Handle<BoxedContext2D>, title:&str, backdrop:Color) -> Self{
+    let wb = WindowBuilder::new()
+      .with_transparent(backdrop.a() < 255)
+      .with_title(title);
+
     let cb = glutin::ContextBuilder::new()
       .with_depth_buffer(0)
       .with_stencil_buffer(8)
@@ -64,7 +68,8 @@ impl View{
       pict: ctx.get_picture(None).unwrap(),
       dims: (width, height),
       surface: RefCell::new(surface),
-      gl: RefCell::new(gl)
+      gl: RefCell::new(gl),
+      backdrop
     }
   }
 
@@ -124,7 +129,7 @@ impl View{
     let sf = physical_size.height as f32 / self.dims.1;
     let indent = (physical_size.width as f32 - self.dims.0 * sf) / 2.0;
 
-    canvas.clear(Color::TRANSPARENT);
+    canvas.clear(self.backdrop);
     canvas.save();
     canvas.translate((indent, 0.0)).scale((sf, sf));
     canvas.draw_picture(&self.pict, None, None);
@@ -300,9 +305,10 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let callback = cx.argument::<JsFunction>(2)?;
   let animate = cx.argument::<JsFunction>(3)?;
   let init_fps = cx.argument::<JsNumber>(4)?.value(&mut cx) as u64;
+  let background = color_arg(&mut cx, 6).unwrap_or(Color::BLACK);
 
   let mut runloop = EventLoop::new();
-  let mut view = View::new(&runloop, context, &title);
+  let mut view = View::new(&runloop, context, &title, background);
   let null = cx.null();
 
   // animation
