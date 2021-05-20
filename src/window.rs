@@ -40,6 +40,7 @@ impl View{
   fn new(runloop:&EventLoop<()>, c2d:Handle<BoxedContext2D>, title:&str, backdrop:Color) -> Self{
     let wb = WindowBuilder::new()
       .with_transparent(backdrop.a() < 255)
+      .with_min_inner_size(LogicalSize::new(75,75))
       .with_title(title);
 
     let cb = glutin::ContextBuilder::new()
