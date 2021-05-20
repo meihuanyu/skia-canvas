@@ -500,7 +500,8 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
             }
           }
 
-              }
+          if need_mods{
+            let mod_info = JsArray::new(&mut cx, 4);
             let mod_info_vec = vec![
               cx.boolean(modifiers.alt()).upcast::<JsValue>(),   // altKey
               cx.boolean(modifiers.ctrl()).upcast::<JsValue>(),  // ctrlKey
@@ -516,6 +517,9 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
           // relay UI event-related state changes
           if let Ok(result) = callback.call(&mut cx, null, payload){
             let (should_quit, to_fullscreen, to_fps) = view.handle_events(&mut cx, result);
+            if to_fullscreen != is_fullscreen{
+              repeats.clear(); // keyups don't get delivered during the transition apparently?
+            }
             is_animated = cadence.set_frame_rate(to_fps);
             is_fullscreen = to_fullscreen;
             is_done = should_quit;
