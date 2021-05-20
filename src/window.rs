@@ -252,8 +252,9 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   // animation
   let mut frame = 0;
   let mut last_frame = Instant::now();
-  let frame_time = Duration::from_millis(1000/60);
-  let redraw_time = frame_time - Duration::from_millis(2);
+  let mut frames_per_second = 60;
+  let frame_time = Duration::from_micros(1_000_000/frames_per_second);
+  let wakeup_time = frame_time - Duration::from_millis(2);
 
   // key events
   let mut modifiers = ModifiersState::empty();
@@ -264,7 +265,7 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let mut is_animated = init_loop;
   let mut is_done = false;
   let mut change_queue = vec![];
-  let mut did_render = true;
+  let mut needs_render = true;
 
   runloop.run_return(|event, _, control_flow| {
     // println!("{:?}", event);
@@ -273,14 +274,15 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
       Event::NewEvents(start_cause) => {
         if is_done{
           *control_flow = ControlFlow::Exit;
-        }else if did_render{
+        }else if is_animated{
           let dt = last_frame.elapsed();
           if dt >= frame_time{
+            last_frame = Instant::now();
             view.context.window().request_redraw();
-          }else if dt >= redraw_time {
+          }else if dt >= wakeup_time {
             *control_flow = ControlFlow::Poll;
           }else{
-            *control_flow = ControlFlow::WaitUntil(last_frame + redraw_time);
+            *control_flow = ControlFlow::WaitUntil(last_frame + wakeup_time);
           }
         }
       }
@@ -413,13 +415,11 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
       }
       Event::RedrawRequested(window_id) => {
         view.redraw();
-        did_render = false;
+        needs_render = true;
       },
       Event::RedrawEventsCleared => {
-
         // trigger the `frame` event
-        if !did_render && is_animated{
-          last_frame = Instant::now();
+        if needs_render && is_animated{
           let args = vec![
             cx.number(frame as f64).upcast::<JsValue>(),
           ];
@@ -428,7 +428,7 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
               let (should_quit, keep_looping) = view.animate(&mut cx, result);
               is_animated = keep_looping;
               is_done = should_quit;
-              did_render = true;
+              needs_render = false;
               frame += 1;
             },
             Err(e) => {
