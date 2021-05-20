@@ -265,8 +265,8 @@ enum StateChange{
   Fullscreen(bool),
   Input(char),
   Keyboard{event:String, key:String, code:u32, repeat:bool},
-  MouseOver(bool),
-  MouseMove(LogicalPosition<i32>),
+  Mouse(String),
+  Wheel(LogicalPosition<f64>)
 }
 
 pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
@@ -287,6 +287,10 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   // key events
   let mut modifiers = ModifiersState::empty();
   let mut repeats:HashMap<VirtualKeyCode, i32> = HashMap::new();
+
+  // mouse events
+  let mut mouse_point = LogicalPosition::<i32>{x:0, y:0};
+  let mut mouse_button:Option<u16> = None;
 
   // runloop state
   let mut change_queue = vec![];
@@ -339,15 +343,49 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         WindowEvent::ReceivedCharacter(character) => {
           change_queue.push(StateChange::Input(character));
         }
+
         WindowEvent::CursorEntered{..} => {
-          change_queue.push(StateChange::MouseOver(true));
+          let mouse_event = "mouseleave".to_string();
+          change_queue.push(StateChange::Mouse(mouse_event));
         }
+
         WindowEvent::CursorLeft{..} => {
-          change_queue.push(StateChange::MouseOver(false));
+          let mouse_event = "mouseleave".to_string();
+          change_queue.push(StateChange::Mouse(mouse_event));
         }
+
         WindowEvent::CursorMoved{position, ..} => {
-          let logical_pt:LogicalPosition<i32> = LogicalPosition::from_physical(position, view.dpr());
-          change_queue.push(StateChange::MouseMove(logical_pt));
+          mouse_point = LogicalPosition::from_physical(position, view.dpr());
+
+          let mouse_event = "mousemove".to_string();
+          change_queue.push(StateChange::Mouse(mouse_event));
+        }
+
+        WindowEvent::MouseWheel{delta, ..} => {
+          let dxdy:LogicalPosition<f64> = match delta {
+            MouseScrollDelta::PixelDelta(physical_pt) => {
+              LogicalPosition::from_physical(physical_pt, view.dpr())
+            },
+            MouseScrollDelta::LineDelta(h, v) => {
+              LogicalPosition::<f64>{x:h as f64, y:v as f64}
+            }
+          };
+          change_queue.push(StateChange::Wheel(dxdy));
+        }
+
+        WindowEvent::MouseInput{state, button, ..} => {
+          let mouse_event = match state {
+            ElementState::Pressed => "mousedown",
+            ElementState::Released => "mouseup"
+          }.to_string();
+
+          mouse_button = match button {
+            MouseButton::Left => Some(0),
+            MouseButton::Middle => Some(1),
+            MouseButton::Right => Some(2),
+            MouseButton::Other(num) => Some(num)
+          };
+          change_queue.push(StateChange::Mouse(mouse_event));
         }
 
         WindowEvent::KeyboardInput {
@@ -403,12 +441,16 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
       Event::MainEventsCleared => {
         // relay the queued events to js
         if !change_queue.is_empty(){
-          //  0–4: x, y, w, h, full,
-          //  5–7: input, key_event, [key, code, repeat, alt, ctrl, meta, shift],
-          // 8–10: mouse_event, mouse_x, mouse_y
-          let mut payload:Vec<Handle<JsValue>> = (0..14).map(|i|
+          //   0–5: x, y, w, h, fullscreen, [alt, ctrl, meta, shift]
+          //  6–10: input, keyEvent, key, code, repeat,
+          // 11–14: [mouseEvents], mouseX, mouseY, button,
+          // 15–16: wheelX, wheelY
+          let mut payload:Vec<Handle<JsValue>> = (0..17).map(|i|
             cx.undefined().upcast::<JsValue>()
           ).collect();
+
+          let mut need_mods = false;
+          let mut mouse_events = vec![];
 
           for change in &change_queue {
             match change{
@@ -425,36 +467,52 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
                 is_fullscreen = *flag;
               }
               StateChange::Input(character) => {
-                payload[5] = cx.string(character.to_string()).upcast::<JsValue>(); // input
+                payload[6] = cx.string(character.to_string()).upcast::<JsValue>(); // input
               }
               StateChange::Keyboard{event, key, code, repeat} => {
-                let key_info = JsArray::new(&mut cx, 7);
-                let key_info_vec = vec![
-                  cx.string(key).upcast::<JsValue>(),                // key
-                  cx.number(*code).upcast::<JsValue>(),              // code
-                  cx.boolean(*repeat).upcast::<JsValue>(),           // repeat
-                  cx.boolean(modifiers.alt()).upcast::<JsValue>(),   // altKey
-                  cx.boolean(modifiers.ctrl()).upcast::<JsValue>(),  // ctrlKey
-                  cx.boolean(modifiers.logo()).upcast::<JsValue>(),  // metaKey
-                  cx.boolean(modifiers.shift()).upcast::<JsValue>(), // shiftKey
-                ];
-                for (i, obj) in key_info_vec.iter().enumerate() {
-                    key_info.set(&mut cx, i as u32, *obj).unwrap();
-                }
-                payload[6] = cx.string(event).upcast::<JsValue>(); // keyup | keydown
-                payload[7] = key_info.upcast::<JsValue>();
+                need_mods = true;
+                payload[7] = cx.string(event).upcast::<JsValue>();     // keyup | keydown
+                payload[8] = cx.string(key).upcast::<JsValue>();       // key
+                payload[9] = cx.number(*code).upcast::<JsValue>();     // code
+                payload[10] = cx.boolean(*repeat).upcast::<JsValue>(); // repeat
               }
-              StateChange::MouseOver(is_over) => {
-                let mouse_event = if *is_over{ "mouseenter" }else{ "mouseleave" };
-                payload[8] = cx.string(mouse_event).upcast::<JsValue>();
+              StateChange::Mouse(event_type) => {
+                need_mods = true;
+                let event_name = cx.string(event_type).upcast::<JsValue>();
+                mouse_events.push(event_name);
               }
-
-              StateChange::MouseMove(LogicalPosition{x, y}) => {
-                payload[9] = cx.number(*x).upcast::<JsValue>(); // mouseX
-                payload[10] = cx.number(*y).upcast::<JsValue>(); // mouseY
-
+              StateChange::Wheel(delta) => {
+                payload[15] = cx.number(delta.x).upcast::<JsValue>(); // wheelX
+                payload[16] = cx.number(delta.y).upcast::<JsValue>(); // wheelY
               }
             }
+          }
+
+          if !mouse_events.is_empty(){
+            let event_list = JsArray::new(&mut cx, mouse_events.len() as u32);
+            for (i, obj) in mouse_events.iter().enumerate() {
+              event_list.set(&mut cx, i as u32, *obj).unwrap();
+            }
+            payload[11] = event_list.upcast::<JsValue>();
+            payload[12] = cx.number(mouse_point.x).upcast::<JsValue>(); // mouseX
+            payload[13] = cx.number(mouse_point.y).upcast::<JsValue>(); // mouseY
+            if let Some(button_id) = mouse_button{
+              payload[14] = cx.number(button_id).upcast::<JsValue>();   // button
+              mouse_button = None;
+            }
+          }
+
+              }
+            let mod_info_vec = vec![
+              cx.boolean(modifiers.alt()).upcast::<JsValue>(),   // altKey
+              cx.boolean(modifiers.ctrl()).upcast::<JsValue>(),  // ctrlKey
+              cx.boolean(modifiers.logo()).upcast::<JsValue>(),  // metaKey
+              cx.boolean(modifiers.shift()).upcast::<JsValue>(), // shiftKey
+            ];
+            for (i, obj) in mod_info_vec.iter().enumerate() {
+                mod_info.set(&mut cx, i as u32, *obj).unwrap();
+            }
+            payload[5] = mod_info.upcast::<JsValue>();
           }
 
           // relay UI event-related state changes
@@ -464,6 +522,7 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
             is_fullscreen = to_fullscreen;
             is_done = should_quit;
           }
+
           change_queue.clear();
         }
 
