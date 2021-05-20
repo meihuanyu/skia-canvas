@@ -5,7 +5,7 @@
 use std::rc::Rc;
 use std::ops::Range;
 use std::cell::RefCell;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::{AtomicUsize, Ordering}};
 use neon::prelude::*;
 use neon::object::This;
 use neon::result::Throw;
@@ -35,7 +35,10 @@ unsafe impl Send for Context2D {
   // PictureRecorder is non-threadsafe
 }
 
+
 pub struct Context2D{
+  pub id: usize,
+  pub rev: RefCell<usize>,
   pub bounds: Rect,
   recorder: Arc<Mutex<PictureRecorder>>,
   state: State,
@@ -133,11 +136,23 @@ impl Context2D{
 
     Context2D{
       bounds,
+      id: Context2D::next_id(),
+      rev: RefCell::new(0),
       recorder: Arc::new(Mutex::new(recorder)),
       path: Path::new(),
       stack: vec![],
       state: State::default(),
     }
+  }
+
+  fn next_id() -> usize {
+    static CTX_ID:AtomicUsize = AtomicUsize::new(1);
+    CTX_ID.fetch_add(1, Ordering::Relaxed)
+  }
+
+  pub fn ident(&self) -> (usize, usize) {
+    let rev = self.rev.borrow();
+    (self.id, *rev)
   }
 
   pub fn in_local_coordinates(&mut self, x: f32, y: f32) -> Point{
@@ -158,10 +173,12 @@ impl Context2D{
   pub fn with_canvas<F>(&self, f:F)
     where F:FnOnce(&mut SkCanvas)
   {
+    let mut rev = self.rev.borrow_mut();
     let recorder = Arc::clone(&self.recorder);
     let mut recorder = recorder.lock().unwrap();
     if let Some(canvas) = recorder.recording_canvas() {
       f(canvas);
+      *rev += 1;
     }
   }
 
@@ -268,6 +285,9 @@ impl Context2D{
       *recorder = new_recorder;
     }
     self.reset_canvas();
+
+    let mut rev = self.rev.borrow_mut();
+    *rev += 1;
   }
 
   pub fn push(&mut self){
