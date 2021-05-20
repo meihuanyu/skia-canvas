@@ -19,7 +19,6 @@ use glutin::event_loop::{ControlFlow, EventLoop};
 use glutin::window::{WindowBuilder, Fullscreen};
 use glutin::GlProfile;
 use gl::types::*;
-use gl_rs as gl;
 
 use crate::context::{BoxedContext2D};
 use crate::utils::*;
