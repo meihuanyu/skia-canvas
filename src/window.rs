@@ -28,39 +28,6 @@ use crate::utils::*;
 
 type WindowedContext = glutin::ContextWrapper<glutin::PossiblyCurrent, glutin::window::Window>;
 
-fn create_surface(windowed_context: &WindowedContext, gl_context:&mut DirectContext) -> skia_safe::Surface {
-  let fb_info = {
-    let mut fboid: GLint = 0;
-    unsafe { gl::GetIntegerv(gl::FRAMEBUFFER_BINDING, &mut fboid) };
-
-    FramebufferInfo {
-      fboid: fboid.try_into().unwrap(),
-      format: skia_safe::gpu::gl::Format::RGBA8.into(),
-    }
-  };
-
-  let pixel_format = windowed_context.get_pixel_format();
-  let size = windowed_context.window().inner_size();
-  let backend_render_target = BackendRenderTarget::new_gl(
-    (
-      size.width.try_into().unwrap(),
-      size.height.try_into().unwrap(),
-    ),
-    pixel_format.multisampling.map(|s| s.try_into().unwrap()),
-    pixel_format.stencil_bits.try_into().unwrap(),
-    fb_info,
-  );
-  Surface::from_backend_render_target(
-    gl_context,
-    &backend_render_target,
-    SurfaceOrigin::BottomLeft,
-    ColorType::RGBA8888,
-    None,
-    None,
-  )
-  .unwrap()
-}
-
 struct View{
   pict:Picture,
   dims:(f32, f32),
@@ -72,11 +39,6 @@ struct View{
 
 impl View{
   fn new(runloop:&EventLoop<()>, c2d:Handle<BoxedContext2D>, title:&str) -> Self{
-    let mut ctx = c2d.borrow_mut();
-    let pict = ctx.get_picture(None).unwrap();
-    let bounds = ctx.bounds;
-    let (width, height) = (bounds.width(), bounds.height());
-
     let wb = WindowBuilder::new().with_title(title);
     let cb = glutin::ContextBuilder::new()
       .with_depth_buffer(0)
@@ -88,13 +50,59 @@ impl View{
     let context = cb.build_windowed(wb, &runloop).unwrap();
     let context = unsafe { context.make_current().unwrap() };
     gl::load_with(|s| context.get_proc_address(&s));
-    context.window()
-      .set_inner_size(Size::new(LogicalSize::new(width, height)));
 
-    let title = title.to_string();
-    let gl = RefCell::new(DirectContext::new_gl(None, None).unwrap());
-    let surface = RefCell::new(create_surface(&context, &mut gl.borrow_mut()));
-    View{dims:(width, height), pict, title, context, surface, gl}
+    let mut ctx = c2d.borrow_mut();
+    let bounds = ctx.bounds;
+    let (width, height) = (bounds.width(), bounds.height());
+    let size = LogicalSize::new(width, height);
+    context.window().set_inner_size(size);
+
+    let (gl, surface) = View::gl_surface(&context);
+    View{
+      context,
+      title: title.to_string(),
+      pict: ctx.get_picture(None).unwrap(),
+      dims: (width, height),
+      surface: RefCell::new(surface),
+      gl: RefCell::new(gl)
+    }
+  }
+
+  fn gl_surface(windowed_context: &WindowedContext) -> (DirectContext, Surface) {
+    let mut gl_context = DirectContext::new_gl(None, None).unwrap();
+
+    let fb_info = {
+      let mut fboid: GLint = 0;
+      unsafe { gl::GetIntegerv(gl::FRAMEBUFFER_BINDING, &mut fboid) };
+
+      FramebufferInfo {
+        fboid: fboid.try_into().unwrap(),
+        format: skia_safe::gpu::gl::Format::RGBA8.into(),
+      }
+    };
+
+    let pixel_format = windowed_context.get_pixel_format();
+    let size = windowed_context.window().inner_size();
+    let backend_render_target = BackendRenderTarget::new_gl(
+      (
+        size.width.try_into().unwrap(),
+        size.height.try_into().unwrap(),
+      ),
+      pixel_format.multisampling.map(|s| s.try_into().unwrap()),
+      pixel_format.stencil_bits.try_into().unwrap(),
+      fb_info,
+    );
+
+    let surface = Surface::from_backend_render_target(
+      &mut gl_context,
+      &backend_render_target,
+      SurfaceOrigin::BottomLeft,
+      ColorType::RGBA8888,
+      None,
+      None,
+    );
+
+    (gl_context, surface.unwrap())
   }
 
   fn dpr(&self) -> f64{
@@ -102,11 +110,10 @@ impl View{
   }
 
   fn resize(&self, physical_size:PhysicalSize<u32>){
-    let mut gr_context = DirectContext::new_gl(None, None).unwrap();
-    let mut surface = create_surface(&self.context, &mut gr_context);
+    let (gl, surface) = View::gl_surface(&self.context);
     self.context.resize(physical_size);
     self.surface.replace(surface);
-    self.gl.replace(gr_context);
+    self.gl.replace(gl);
   }
 
   fn redraw(&self){
