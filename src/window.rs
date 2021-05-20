@@ -10,20 +10,18 @@ use neon::prelude::*;
 
 use skia_safe::gpu::gl::FramebufferInfo;
 use skia_safe::gpu::{BackendRenderTarget, SurfaceOrigin, DirectContext};
-use skia_safe::{Image as SkImage, ImageInfo, Color, ColorType,
-        AlphaType, Data, Surface, Rect, Picture, Paint, PaintStyle};
+use skia_safe::{Color, ColorType, Surface, Picture};
 
-use glutin::{PossiblyCurrent};
-use glutin::event::{Event, KeyboardInput, VirtualKeyCode, WindowEvent, ModifiersState, ElementState, StartCause};
-use glutin::event_loop::{ControlFlow, EventLoop};
-use glutin::window::{WindowBuilder, WindowId, Fullscreen};
-use glutin::dpi::{Size, LogicalSize, PhysicalSize, LogicalPosition, PhysicalPosition};
-use glutin::GlProfile;
 use glutin::platform::run_return::EventLoopExtRunReturn;
+use glutin::event::{Event, KeyboardInput, VirtualKeyCode, WindowEvent, ModifiersState, ElementState, MouseButton, MouseScrollDelta};
+use glutin::dpi::{LogicalSize, PhysicalSize, LogicalPosition, PhysicalPosition};
+use glutin::event_loop::{ControlFlow, EventLoop};
+use glutin::window::{WindowBuilder, Fullscreen};
+use glutin::GlProfile;
 use gl::types::*;
 use gl_rs as gl;
 
-use crate::context::{Context2D, BoxedContext2D};
+use crate::context::{BoxedContext2D};
 use crate::utils::*;
 
 type WindowedContext = glutin::ContextWrapper<glutin::PossiblyCurrent, glutin::window::Window>;
