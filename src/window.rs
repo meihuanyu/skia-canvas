@@ -303,12 +303,19 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
 
   // runloop state
   let mut change_queue = vec![];
+  let mut new_loop = true;
   let mut needs_render = true;
   let mut is_fullscreen = false;
   let mut is_done = false;
 
   runloop.run_return(|event, _, control_flow| {
-    // println!("{:?}", event);
+
+    if new_loop{
+      // starting a new loop after a previous one has exited apparently leaves
+      // the control_flow enum still set to Exit
+      *control_flow = ControlFlow::WaitUntil(cadence.sleep());
+      new_loop = false;
+    }
 
     match event {
       Event::NewEvents(start_cause) => {
@@ -565,7 +572,6 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
             }
           }
         }
-
       },
       _ => {}
     }
