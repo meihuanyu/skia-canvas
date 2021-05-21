@@ -197,6 +197,7 @@ impl View{
   }
 
   fn handle_events(&mut self, cx:&mut FunctionContext, result:Handle<JsValue>) -> (bool, bool, u64){
+    let mut window = self.context.window();
     let mut should_quit = false;
     let mut to_fullscreen = false;
     let mut to_fps = 0;
@@ -221,7 +222,7 @@ impl View{
           let title = title.value(cx);
           if self.title != title{
             self.title = title;
-            self.context.window().set_title(&self.title);
+            window.set_title(&self.title);
           }
         }
 
@@ -233,11 +234,11 @@ impl View{
         // 3: fullscreen flag
         if let Ok(is_full) = vals[3].downcast::<JsBoolean, _>(cx){
           let is_full = is_full.value(cx);
-          let was_full = self.context.window().fullscreen().is_some();
+          let was_full = window.fullscreen().is_some();
           if is_full != was_full{
             match is_full{
-              true => self.context.window().set_fullscreen( Some(Fullscreen::Borderless(None)) ),
-              false => self.context.window().set_fullscreen( None )
+              true => window.set_fullscreen( Some(Fullscreen::Borderless(None)) ),
+              false => window.set_fullscreen( None )
             }
           }
           to_fullscreen = is_full
@@ -250,7 +251,7 @@ impl View{
 
         // 5+6: window size
         let dpr = self.dpr();
-        let old_dims = self.context.window().inner_size();
+        let old_dims = window.inner_size();
         let old_dims = LogicalSize::from_physical(old_dims, dpr);
         let mut new_dims = old_dims;
         if let Ok(width) = vals[5].downcast::<JsNumber, _>(cx){
@@ -260,11 +261,11 @@ impl View{
           new_dims.height = height.value(cx) as i32;
         }
         if new_dims != old_dims{
-          self.context.window().set_inner_size(new_dims);
+          window.set_inner_size(new_dims);
         }
 
         // 7+8: window position
-        let old_pos = self.context.window().outer_position().unwrap();
+        let old_pos = window.outer_position().unwrap();
         let old_pos = LogicalPosition::from_physical(old_pos, dpr);
         let mut new_pos = old_pos;
         if let Ok(x) = vals[7].downcast::<JsNumber, _>(cx){
@@ -274,26 +275,24 @@ impl View{
           new_pos.y = y.value(cx) as i32;
         }
         if new_pos != old_pos{
-          self.context.window().set_outer_position(new_pos);
+          window.set_outer_position(new_pos);
         }
-
 
         // 9: cursor
         if let Ok(cursor_style) = vals[9].downcast::<JsString, _>(cx){
           let cursor_style = cursor_style.value(cx);
           match to_cursor_icon(&cursor_style){
             Some(icon) => {
-              self.context.window().set_cursor_icon(icon);
-              self.context.window().set_cursor_visible(true);
+              window.set_cursor_icon(icon);
+              window.set_cursor_visible(true);
             },
             None => {
               if cursor_style == "none" {
-                self.context.window().set_cursor_visible(false);
+                window.set_cursor_visible(false);
               }
             }
           }
         }
-
 
       }
     }
