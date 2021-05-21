@@ -37,11 +37,12 @@ struct View{
 }
 
 impl View{
-  fn new(runloop:&EventLoop<()>, c2d:Handle<BoxedContext2D>, title:&str, backdrop:Color) -> Self{
+  fn new(runloop:&EventLoop<()>, c2d:Handle<BoxedContext2D>, backdrop:Color) -> Self{
     let wb = WindowBuilder::new()
       .with_transparent(backdrop.a() < 255)
       .with_min_inner_size(LogicalSize::new(75,75))
-      .with_title(title);
+      .with_visible(false)
+      .with_title("");
 
     let cb = glutin::ContextBuilder::new()
       .with_depth_buffer(0)
@@ -73,7 +74,7 @@ impl View{
     View{
       context,
       ident: ctx.ident(),
-      title: title.to_string(),
+      title: "".to_string(),
       pict: ctx.get_picture(None).unwrap(),
       dims: (width, height),
       surface: RefCell::new(surface),
@@ -312,19 +313,13 @@ enum StateChange{
 
 pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let context = cx.argument::<BoxedContext2D>(0)?;
-  let title = cx.argument::<JsString>(1)?.value(&mut cx);
-  let callback = cx.argument::<JsFunction>(2)?;
-  let animate = cx.argument::<JsFunction>(3)?;
-  let init_fps = cx.argument::<JsNumber>(4)?.value(&mut cx) as u64;
-  let background = color_arg(&mut cx, 6).unwrap_or(Color::BLACK);
+  let callback = cx.argument::<JsFunction>(1)?;
+  let animate = cx.argument::<JsFunction>(2)?;
+  let background = color_arg(&mut cx, 3).unwrap_or(Color::BLACK);
 
   let mut runloop = EventLoop::new();
-  let mut view = View::new(&runloop, context, &title, background);
+  let mut view = View::new(&runloop, context, background);
   let null = cx.null();
-
-  // animation
-  let mut cadence = Cadence::new();
-  let mut is_animated = cadence.set_frame_rate(init_fps);
 
   // key events
   let mut modifiers = ModifiersState::empty();
@@ -335,10 +330,12 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let mut mouse_button:Option<u16> = None;
 
   // runloop state
+  let mut cadence = Cadence::new();
   let mut change_queue = vec![];
   let mut new_loop = true;
   let mut needs_render = true;
   let mut is_fullscreen = false;
+  let mut is_animated = false;
   let mut is_done = false;
 
   runloop.run_return(|event, _, control_flow| {
@@ -347,6 +344,16 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
       // starting a new loop after a previous one has exited apparently leaves
       // the control_flow enum still set to Exit
       *control_flow = ControlFlow::WaitUntil(cadence.sleep());
+
+      // do an initial roundtrip to sync up the Window object's state attrs
+      if let Ok(result) = callback.call(&mut cx, null, argv()){
+        let (should_quit, to_fullscreen, to_fps) = view.handle_events(&mut cx, result);
+        is_animated = cadence.set_frame_rate(to_fps);
+        is_fullscreen = to_fullscreen;
+        is_done = should_quit;
+        view.context.window().set_visible(true);
+      }
+
       new_loop = false;
     }
 
