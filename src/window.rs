@@ -615,6 +615,7 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
 
           if is_fullscreen != view.in_fullscreen() {
             event_queue.went_fullscreen(!is_fullscreen);
+            is_fullscreen = !is_fullscreen;
           }
           view.resize(physical_size);
         }
@@ -630,6 +631,7 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
             if view.in_fullscreen(){
               view.go_fullscreen(false);
               event_queue.went_fullscreen(false);
+              is_fullscreen = false;
             }else{
               is_done = true;
             }
@@ -652,6 +654,7 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
             Ok(result) => {
               let (should_quit, to_fullscreen, to_fps) = view.handle_events(&mut cx, result);
               if to_fullscreen != is_fullscreen{
+                event_queue.went_fullscreen(to_fullscreen);
                 event_queue.key_repeats.clear() // keyups don't get delivered during the transition apparently?
               }
 
