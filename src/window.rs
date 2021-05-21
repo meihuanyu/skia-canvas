@@ -131,6 +131,19 @@ impl View{
     self.gl.replace(gl);
   }
 
+  fn in_fullscreen(&self) -> bool {
+    self.context.window().fullscreen().is_some()
+  }
+
+  fn go_fullscreen(&mut self, to_full:bool){
+    let mode = match to_full{
+      true => Some(Fullscreen::Borderless(None)),
+      false => None
+    };
+
+    self.context.window().set_fullscreen(mode);
+  }
+
   fn redraw(&self){
     let mut surface = self.surface.borrow_mut();
     let canvas = surface.canvas();
@@ -191,6 +204,7 @@ impl View{
     if let Ok(array) = result.downcast::<JsArray, _>(cx){
       if let Ok(vals) = array.to_vec(cx){
 
+        // 0: context
         if let Ok(c2d) = vals[0].downcast::<BoxedContext2D, _>(cx){
           let mut ctx = c2d.borrow_mut();
           if self.ident != ctx.ident(){
@@ -202,6 +216,7 @@ impl View{
           }
         }
 
+        // 1: title
         if let Ok(title) = vals[1].downcast::<JsString, _>(cx){
           let title = title.value(cx);
           if self.title != title{
@@ -210,10 +225,12 @@ impl View{
           }
         }
 
+        // 2: 'keep running' flag
         if let Ok(active) = vals[2].downcast::<JsBoolean, _>(cx){
           if !active.value(cx){ should_quit = true }
         }
 
+        // 3: fullscreen flag
         if let Ok(is_full) = vals[3].downcast::<JsBoolean, _>(cx){
           let is_full = is_full.value(cx);
           let was_full = self.context.window().fullscreen().is_some();
@@ -226,29 +243,42 @@ impl View{
           to_fullscreen = is_full
         }
 
+        // 4: fps (or zero to disable animation)
         if let Ok(fps) = vals[4].downcast::<JsNumber, _>(cx){
           to_fps = fps.value(cx) as u64;
         }
 
-        let dpr = self.dpr() as f32;
-        let old_pos = self.context.window().outer_position().unwrap();
-        let new_pos:Vec<i32> = floats_in(cx, &vals[5..7]).iter().map(|d| (*d * dpr) as i32).collect();
-        if let [x, y] = new_pos.as_slice(){
-          if *x != old_pos.x || *y != old_pos.y{
-            let position = PhysicalPosition::<i32>::new(*x, *y);
-            self.context.window().set_outer_position(position)
-          }
-        }
-
+        // 5+6: window size
+        let dpr = self.dpr();
         let old_dims = self.context.window().inner_size();
-        let new_dims:Vec<u32> = floats_in(cx, &vals[7..9]).iter().map(|d| (*d * dpr) as u32).collect();
-        if let [width, height] = new_dims.as_slice(){
-          if *width != old_dims.width || *height != old_dims.height{
-            let size = PhysicalSize::<u32>::new(*width, *height);
-            self.context.window().set_inner_size(size)
-          }
+        let old_dims = LogicalSize::from_physical(old_dims, dpr);
+        let mut new_dims = old_dims;
+        if let Ok(width) = vals[5].downcast::<JsNumber, _>(cx){
+          new_dims.width = width.value(cx) as i32;
+        }
+        if let Ok(height) = vals[6].downcast::<JsNumber, _>(cx){
+          new_dims.height = height.value(cx) as i32;
+        }
+        if new_dims != old_dims{
+          self.context.window().set_inner_size(new_dims);
         }
 
+        // 7+8: window position
+        let old_pos = self.context.window().outer_position().unwrap();
+        let old_pos = LogicalPosition::from_physical(old_pos, dpr);
+        let mut new_pos = old_pos;
+        if let Ok(x) = vals[7].downcast::<JsNumber, _>(cx){
+          new_pos.x = x.value(cx) as i32;
+        }
+        if let Ok(y) = vals[8].downcast::<JsNumber, _>(cx){
+          new_pos.y = y.value(cx) as i32;
+        }
+        if new_pos != old_pos{
+          self.context.window().set_outer_position(new_pos);
+        }
+
+
+        // 9: cursor
         if let Ok(cursor_style) = vals[9].downcast::<JsString, _>(cx){
           let cursor_style = cursor_style.value(cx);
           match to_cursor_icon(&cursor_style){
@@ -301,6 +331,7 @@ impl Cadence{
   fn sleep(&self) -> Instant{ self.last            + self.shutter * 9/10 }
 }
 
+#[derive(Debug)]
 enum StateChange{
   Position(LogicalPosition<i32>),
   Size(LogicalSize<u32>),
@@ -311,29 +342,231 @@ enum StateChange{
   Wheel(LogicalPosition<f64>)
 }
 
+struct EventQueue{
+  changes: Vec<StateChange>,
+  key_modifiers: ModifiersState,
+  key_repeats: HashMap<VirtualKeyCode, i32>,
+  mouse_point: LogicalPosition::<i32>,
+  mouse_button: Option<u16>,
+}
+
+impl EventQueue {
+  fn new() -> Self {
+    EventQueue{
+      changes: vec![],
+      key_modifiers: ModifiersState::empty(),
+      key_repeats: HashMap::new(),
+      mouse_point: LogicalPosition::<i32>{x:0, y:0},
+      mouse_button: None,
+    }
+  }
+
+  fn went_fullscreen(&mut self, did_go_fullscreen:bool){
+    self.changes.push(StateChange::Fullscreen(did_go_fullscreen));
+  }
+
+  fn capture(&mut self, event:&WindowEvent, dpr:f64){
+    match event{
+      WindowEvent::Moved(physical_pt) => {
+        let logical_pt:LogicalPosition<i32> = LogicalPosition::from_physical(*physical_pt, dpr);
+        self.changes.push(StateChange::Position(logical_pt));
+      }
+
+      WindowEvent::Resized(physical_size) => {
+        let logical_size:LogicalSize<u32> = LogicalSize::from_physical(*physical_size, dpr);
+        self.changes.push(StateChange::Size(logical_size));
+      }
+
+      WindowEvent::ModifiersChanged(state) => {
+        self.key_modifiers = *state;
+      }
+
+      WindowEvent::ReceivedCharacter(character) => {
+        self.changes.push(StateChange::Input(*character));
+      }
+
+      WindowEvent::CursorEntered{..} => {
+        let mouse_event = "mouseenter".to_string();
+        self.changes.push(StateChange::Mouse(mouse_event));
+      }
+
+      WindowEvent::CursorLeft{..} => {
+        let mouse_event = "mouseleave".to_string();
+        self.changes.push(StateChange::Mouse(mouse_event));
+      }
+
+      WindowEvent::CursorMoved{position, ..} => {
+        self.mouse_point = LogicalPosition::from_physical(*position, dpr);
+
+        let mouse_event = "mousemove".to_string();
+        self.changes.push(StateChange::Mouse(mouse_event));
+      }
+
+      WindowEvent::MouseWheel{delta, ..} => {
+        let dxdy:LogicalPosition<f64> = match delta {
+          MouseScrollDelta::PixelDelta(physical_pt) => {
+            LogicalPosition::from_physical(*physical_pt, dpr)
+          },
+          MouseScrollDelta::LineDelta(h, v) => {
+            LogicalPosition::<f64>{x:*h as f64, y:*v as f64}
+          }
+        };
+        self.changes.push(StateChange::Wheel(dxdy));
+      }
+
+      WindowEvent::MouseInput{state, button, ..} => {
+        let mouse_event = match state {
+          ElementState::Pressed => "mousedown",
+          ElementState::Released => "mouseup"
+        }.to_string();
+
+        self.mouse_button = match button {
+          MouseButton::Left => Some(0),
+          MouseButton::Middle => Some(1),
+          MouseButton::Right => Some(2),
+          MouseButton::Other(num) => Some(*num)
+        };
+        self.changes.push(StateChange::Mouse(mouse_event));
+      }
+
+      WindowEvent::KeyboardInput {
+        input:
+          KeyboardInput {
+            scancode,
+            state,
+            virtual_keycode:Some(keycode),
+            ..
+          },
+        ..
+      } => {
+        let (event_type, count) = match state{
+          ElementState::Pressed => {
+            let count = self.key_repeats.entry(*keycode).or_insert(-1);
+            *count += 1;
+            ("keydown", *count)
+          },
+          ElementState::Released => {
+            self.key_repeats.remove(&keycode);
+            ("keyup", 0)
+          }
+        };
+
+        if event_type == "keyup" || count < 2{
+          self.changes.push(StateChange::Keyboard{
+            event: event_type.to_string(),
+            key: from_key_code(*keycode),
+            code: *scancode,
+            repeat: count > 0
+          });
+        }
+
+      }
+      _ => {}
+    }
+  }
+
+  fn digest<'a>(&mut self, cx: &mut FunctionContext<'a>) -> Vec<Handle<'a, JsValue>>{
+
+    let mut payload:Vec<Handle<JsValue>> = (0..17).map(|i|
+      //   0–5: x, y, w, h, fullscreen, [alt, ctrl, meta, shift]
+      //  6–10: input, keyEvent, key, code, repeat,
+      // 11–14: [mouseEvents], mouseX, mouseY, button,
+      // 15–16: wheelX, wheelY
+      cx.undefined().upcast::<JsValue>()
+    ).collect();
+
+    let mut need_mods = false;
+    let mut mouse_events = vec![];
+
+    for change in &self.changes {
+      match change{
+        StateChange::Position(LogicalPosition{x, y}) => {
+          payload[0] = cx.number(*x).upcast::<JsValue>(); // x
+          payload[1] = cx.number(*y).upcast::<JsValue>(); // y
+        }
+        StateChange::Size(LogicalSize{width, height}) => {
+          payload[2] = cx.number(*width).upcast::<JsValue>();  // width
+          payload[3] = cx.number(*height).upcast::<JsValue>(); // height
+        }
+        StateChange::Fullscreen(flag) => {
+          payload[4] = cx.boolean(*flag).upcast::<JsValue>(); // fullscreen
+        }
+        StateChange::Input(character) => {
+          need_mods = true;
+          payload[6] = cx.string(character.to_string()).upcast::<JsValue>(); // input
+        }
+        StateChange::Keyboard{event, key, code, repeat} => {
+          need_mods = true;
+          payload[7] = cx.string(event).upcast::<JsValue>();     // keyup | keydown
+          payload[8] = cx.string(key).upcast::<JsValue>();       // key
+          payload[9] = cx.number(*code).upcast::<JsValue>();     // code
+          payload[10] = cx.boolean(*repeat).upcast::<JsValue>(); // repeat
+        }
+        StateChange::Mouse(event_type) => {
+          need_mods = true;
+          let event_name = cx.string(event_type).upcast::<JsValue>();
+          mouse_events.push(event_name);
+        }
+        StateChange::Wheel(delta) => {
+          payload[15] = cx.number(delta.x).upcast::<JsValue>(); // wheelX
+          payload[16] = cx.number(delta.y).upcast::<JsValue>(); // wheelY
+        }
+      }
+    }
+
+    if !mouse_events.is_empty(){
+      let event_list = JsArray::new(cx, mouse_events.len() as u32);
+      for (i, obj) in mouse_events.iter().enumerate() {
+        event_list.set(cx, i as u32, *obj).unwrap();
+      }
+      payload[11] = event_list.upcast::<JsValue>();
+
+      let LogicalPosition{x, y} = self.mouse_point;
+      payload[12] = cx.number(x).upcast::<JsValue>(); // mouseX
+      payload[13] = cx.number(y).upcast::<JsValue>(); // mouseY
+
+      if let Some(button_id) = self.mouse_button{
+        payload[14] = cx.number(button_id).upcast::<JsValue>();   // button
+        self.mouse_button = None;
+      }
+    }
+
+    if need_mods{
+      let mod_info = JsArray::new(cx, 4);
+      let mod_info_vec = vec![
+        cx.boolean(self.key_modifiers.alt()).upcast::<JsValue>(),   // altKey
+        cx.boolean(self.key_modifiers.ctrl()).upcast::<JsValue>(),  // ctrlKey
+        cx.boolean(self.key_modifiers.logo()).upcast::<JsValue>(),  // metaKey
+        cx.boolean(self.key_modifiers.shift()).upcast::<JsValue>(), // shiftKey
+      ];
+      for (i, obj) in mod_info_vec.iter().enumerate() {
+          mod_info.set(cx, i as u32, *obj).unwrap();
+      }
+      payload[5] = mod_info.upcast::<JsValue>();
+    }
+
+    self.changes.clear();
+    payload
+  }
+
+}
+
 pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let context = cx.argument::<BoxedContext2D>(0)?;
-  let callback = cx.argument::<JsFunction>(1)?;
+  let dispatch = cx.argument::<JsFunction>(1)?;
   let animate = cx.argument::<JsFunction>(2)?;
-  let background = color_arg(&mut cx, 3).unwrap_or(Color::BLACK);
+  let matte = color_arg(&mut cx, 3).unwrap_or(Color::BLACK);
 
   let mut runloop = EventLoop::new();
-  let mut view = View::new(&runloop, context, background);
+  let mut event_queue = EventQueue::new();
+  let mut view = View::new(&runloop, context, matte);
   let null = cx.null();
-
-  // key events
-  let mut modifiers = ModifiersState::empty();
-  let mut repeats:HashMap<VirtualKeyCode, i32> = HashMap::new();
-
-  // mouse events
-  let mut mouse_point = LogicalPosition::<i32>{x:0, y:0};
-  let mut mouse_button:Option<u16> = None;
 
   // runloop state
   let mut cadence = Cadence::new();
-  let mut change_queue = vec![];
+  let mut change_queue:Vec<StateChange> = vec![];
   let mut new_loop = true;
-  let mut needs_render = true;
+  let mut is_stale = true;
   let mut is_fullscreen = false;
   let mut is_animated = false;
   let mut is_done = false;
@@ -346,12 +579,15 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
       *control_flow = ControlFlow::WaitUntil(cadence.sleep());
 
       // do an initial roundtrip to sync up the Window object's state attrs
-      if let Ok(result) = callback.call(&mut cx, null, argv()){
-        let (should_quit, to_fullscreen, to_fps) = view.handle_events(&mut cx, result);
-        is_animated = cadence.set_frame_rate(to_fps);
-        is_fullscreen = to_fullscreen;
-        is_done = should_quit;
-        view.context.window().set_visible(true);
+      match dispatch.call(&mut cx, null, argv()){
+        Ok(result) => {
+          let (should_quit, to_fullscreen, to_fps) = view.handle_events(&mut cx, result);
+          is_animated = cadence.set_frame_rate(to_fps);
+          is_fullscreen = to_fullscreen;
+          is_done = should_quit;
+          view.context.window().set_visible(true);
+        },
+        Err(_) => is_done = true
       }
 
       new_loop = false;
@@ -372,250 +608,90 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
           }
         }
       }
-      Event::WindowEvent { event, window_id } => match event {
-        WindowEvent::Moved(physical_pt) => {
-          let logical_pt:LogicalPosition<i32> = LogicalPosition::from_physical(physical_pt, view.dpr());
-          change_queue.push(StateChange::Position(logical_pt));
-        }
 
+      Event::WindowEvent{event, window_id} => match event {
         WindowEvent::Resized(physical_size) => {
-          let logical_size:LogicalSize<u32> = LogicalSize::from_physical(physical_size, view.dpr());
-          change_queue.push(StateChange::Size(logical_size));
+          event_queue.capture(&event, view.dpr());
 
-          if is_fullscreen != view.context.window().fullscreen().is_some() {
-            change_queue.push(StateChange::Fullscreen(!is_fullscreen));
+          if is_fullscreen != view.in_fullscreen() {
+            event_queue.went_fullscreen(!is_fullscreen);
           }
           view.resize(physical_size);
         }
-
-        WindowEvent::ModifiersChanged(state) => {
-          modifiers = state;
-        }
-
         WindowEvent::CloseRequested => {
           is_done = true;
         }
-
-        WindowEvent::ReceivedCharacter(character) => {
-          change_queue.push(StateChange::Input(character));
-        }
-
-        WindowEvent::CursorEntered{..} => {
-          let mouse_event = "mouseenter".to_string();
-          change_queue.push(StateChange::Mouse(mouse_event));
-        }
-
-        WindowEvent::CursorLeft{..} => {
-          let mouse_event = "mouseleave".to_string();
-          change_queue.push(StateChange::Mouse(mouse_event));
-        }
-
-        WindowEvent::CursorMoved{position, ..} => {
-          mouse_point = LogicalPosition::from_physical(position, view.dpr());
-
-          let mouse_event = "mousemove".to_string();
-          change_queue.push(StateChange::Mouse(mouse_event));
-        }
-
-        WindowEvent::MouseWheel{delta, ..} => {
-          let dxdy:LogicalPosition<f64> = match delta {
-            MouseScrollDelta::PixelDelta(physical_pt) => {
-              LogicalPosition::from_physical(physical_pt, view.dpr())
-            },
-            MouseScrollDelta::LineDelta(h, v) => {
-              LogicalPosition::<f64>{x:h as f64, y:v as f64}
-            }
-          };
-          change_queue.push(StateChange::Wheel(dxdy));
-        }
-
-        WindowEvent::MouseInput{state, button, ..} => {
-          let mouse_event = match state {
-            ElementState::Pressed => "mousedown",
-            ElementState::Released => "mouseup"
-          }.to_string();
-
-          mouse_button = match button {
-            MouseButton::Left => Some(0),
-            MouseButton::Middle => Some(1),
-            MouseButton::Right => Some(2),
-            MouseButton::Other(num) => Some(num)
-          };
-          change_queue.push(StateChange::Mouse(mouse_event));
-        }
-
         WindowEvent::KeyboardInput {
-          input:
-            KeyboardInput {
-              scancode,
-              state,
-              virtual_keycode:Some(keycode),
-              ..
-            },
-          ..
+          input: KeyboardInput {
+            scancode, state, virtual_keycode: Some(keycode), ..
+          }, ..
         } => {
           if keycode==VirtualKeyCode::Escape {
-            if view.context.window().fullscreen().is_some(){
-              view.context.window().set_fullscreen(None);
-              change_queue.push(StateChange::Fullscreen(false));
+            if view.in_fullscreen(){
+              view.go_fullscreen(false);
+              event_queue.went_fullscreen(false);
             }else{
               is_done = true;
             }
-          }else if modifiers.logo() && keycode==VirtualKeyCode::Q{
-            is_done = true;
-        }else if modifiers.logo() && keycode==VirtualKeyCode::F{
-            if !is_fullscreen{
-              view.context.window().set_fullscreen( Some(Fullscreen::Borderless(None)) );
-              change_queue.push(StateChange::Fullscreen(true));
-            }
           }else{
-            let (event_type, count) = match state{
-              ElementState::Pressed => {
-                let count = repeats.entry(keycode).or_insert(-1);
-                *count += 1;
-                ("keydown", *count)
-              },
-              ElementState::Released => {
-                repeats.remove(&keycode);
-                ("keyup", 0)
-              }
-            };
-
-            if event_type == "keyup" || count < 2{
-              change_queue.push(StateChange::Keyboard{
-                event: event_type.to_string(),
-                key: from_key_code(keycode),
-                code: scancode,
-                repeat: count > 0
-              });
-            }
+            event_queue.capture(&event, view.dpr());
           }
-
         }
-        _ => (),
-      },
+        _ => {
+          // all other WindowEvents
+          event_queue.capture(&event, view.dpr());
+        }
+      }
+
       Event::MainEventsCleared => {
-        // relay the queued events to js
-        if !change_queue.is_empty(){
-          //   0–5: x, y, w, h, fullscreen, [alt, ctrl, meta, shift]
-          //  6–10: input, keyEvent, key, code, repeat,
-          // 11–14: [mouseEvents], mouseX, mouseY, button,
-          // 15–16: wheelX, wheelY
-          let mut payload:Vec<Handle<JsValue>> = (0..17).map(|i|
-            cx.undefined().upcast::<JsValue>()
-          ).collect();
-
-          let mut need_mods = false;
-          let mut mouse_events = vec![];
-
-          for change in &change_queue {
-            match change{
-              StateChange::Position(LogicalPosition{x, y}) => {
-                payload[0] = cx.number(*x).upcast::<JsValue>(); // x
-                payload[1] = cx.number(*y).upcast::<JsValue>(); // y
-              }
-              StateChange::Size(LogicalSize{width, height}) => {
-                payload[2] = cx.number(*width).upcast::<JsValue>();  // width
-                payload[3] = cx.number(*height).upcast::<JsValue>(); // height
-              }
-              StateChange::Fullscreen(flag) => {
-                payload[4] = cx.boolean(*flag).upcast::<JsValue>(); // fullscreen
-                is_fullscreen = *flag;
-              }
-              StateChange::Input(character) => {
-                payload[6] = cx.string(character.to_string()).upcast::<JsValue>(); // input
-              }
-              StateChange::Keyboard{event, key, code, repeat} => {
-                need_mods = true;
-                payload[7] = cx.string(event).upcast::<JsValue>();     // keyup | keydown
-                payload[8] = cx.string(key).upcast::<JsValue>();       // key
-                payload[9] = cx.number(*code).upcast::<JsValue>();     // code
-                payload[10] = cx.boolean(*repeat).upcast::<JsValue>(); // repeat
-              }
-              StateChange::Mouse(event_type) => {
-                need_mods = true;
-                let event_name = cx.string(event_type).upcast::<JsValue>();
-                mouse_events.push(event_name);
-              }
-              StateChange::Wheel(delta) => {
-                payload[15] = cx.number(delta.x).upcast::<JsValue>(); // wheelX
-                payload[16] = cx.number(delta.y).upcast::<JsValue>(); // wheelY
-              }
-            }
-          }
-
-          if !mouse_events.is_empty(){
-            let event_list = JsArray::new(&mut cx, mouse_events.len() as u32);
-            for (i, obj) in mouse_events.iter().enumerate() {
-              event_list.set(&mut cx, i as u32, *obj).unwrap();
-            }
-            payload[11] = event_list.upcast::<JsValue>();
-            payload[12] = cx.number(mouse_point.x).upcast::<JsValue>(); // mouseX
-            payload[13] = cx.number(mouse_point.y).upcast::<JsValue>(); // mouseY
-            if let Some(button_id) = mouse_button{
-              payload[14] = cx.number(button_id).upcast::<JsValue>();   // button
-              mouse_button = None;
-            }
-          }
-
-          if need_mods{
-            let mod_info = JsArray::new(&mut cx, 4);
-            let mod_info_vec = vec![
-              cx.boolean(modifiers.alt()).upcast::<JsValue>(),   // altKey
-              cx.boolean(modifiers.ctrl()).upcast::<JsValue>(),  // ctrlKey
-              cx.boolean(modifiers.logo()).upcast::<JsValue>(),  // metaKey
-              cx.boolean(modifiers.shift()).upcast::<JsValue>(), // shiftKey
-            ];
-            for (i, obj) in mod_info_vec.iter().enumerate() {
-                mod_info.set(&mut cx, i as u32, *obj).unwrap();
-            }
-            payload[5] = mod_info.upcast::<JsValue>();
-          }
+        if !event_queue.changes.is_empty(){
 
           // relay UI event-related state changes
-          if let Ok(result) = callback.call(&mut cx, null, payload){
-            let (should_quit, to_fullscreen, to_fps) = view.handle_events(&mut cx, result);
-            if to_fullscreen != is_fullscreen{
-              repeats.clear(); // keyups don't get delivered during the transition apparently?
-            }
+          let changes = event_queue.digest(&mut cx);
+          match dispatch.call(&mut cx, null, changes){
+            Ok(result) => {
+              let (should_quit, to_fullscreen, to_fps) = view.handle_events(&mut cx, result);
+              if to_fullscreen != is_fullscreen{
+                event_queue.key_repeats.clear() // keyups don't get delivered during the transition apparently?
+              }
 
-            is_animated = cadence.set_frame_rate(to_fps);
-            is_fullscreen = to_fullscreen;
-            is_done = should_quit;
+              is_animated = cadence.set_frame_rate(to_fps);
+              is_fullscreen = to_fullscreen;
+              is_done = should_quit;
 
-            if !is_animated{
-              view.context.window().request_redraw();
-            }
+              if !is_animated{
+                view.context.window().request_redraw();
+              }
+            },
+            Err(_) => is_done = true
           }
-
-          change_queue.clear();
         }
 
       }
       Event::RedrawRequested(window_id) => {
         view.redraw();
-        needs_render = true;
+        is_stale = true;
       },
       Event::RedrawEventsCleared => {
-        if needs_render && is_animated{
+        if is_stale && is_animated{
+          is_stale = false;
+
           // call the `frame` event handler
           match animate.call(&mut cx, null, argv()){
             Ok(result) => {
               let (should_quit, to_fps) = view.animate(&mut cx, result);
               is_animated = cadence.set_frame_rate(to_fps);
               is_done = should_quit;
-              needs_render = false;
             },
-            Err(e) => {
-              println!("Error {}", e);
-              is_done = true;
-            }
+            Err(_) => is_done = true
           }
         }
       },
-      _ => {}
-    }
 
+      _ => {
+        // all other generic Events
+      }
+    }
   });
 
   Ok(cx.undefined())
