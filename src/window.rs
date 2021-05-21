@@ -62,7 +62,9 @@ impl View{
 
     context.window().set_inner_size(size);
     if let Some(monitor) = context.window().current_monitor(){
-      let screen_size = LogicalSize::<f32>::from_physical(monitor.size(), monitor.scale_factor());
+      let screen_size = LogicalSize::<f32>::from_physical(
+        monitor.size(), monitor.scale_factor()
+      );
       let position = LogicalPosition::new(
         (screen_size.width - size.width) / 2.0,
         (screen_size.height - size.height) / 3.0,
