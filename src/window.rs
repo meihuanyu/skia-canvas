@@ -303,32 +303,39 @@ impl View{
 }
 
 struct Cadence{
-  fps: u64,
   last: Instant,
-  shutter: Duration,
+  render: Duration,
+  wakeup: Duration,
 }
 
 impl Cadence{
   fn new() -> Self {
     let fps = 60;
     let last = Instant::now();
-    let shutter = Duration::from_micros(1_000_000/fps);
-    Cadence{fps, last, shutter}
-  }
-
-  fn next(&mut self){
-    self.last = Instant::now();
+    let render = Duration::from_micros(1_000_000/fps);
+    let wakeup = Duration::from_micros(1_000_000/fps * 9/10);
+    Cadence{last, render, wakeup}
   }
 
   fn set_frame_rate(&mut self, refresh_rate:u64) -> bool{
-    self.shutter = Duration::from_micros(1_000_000/refresh_rate.max(1));
-    self.fps = refresh_rate;
+    let frame_time = 1_000_000_000/refresh_rate.max(1);
+    let watch_interval = 1_000_000.max(frame_time/10);
+    self.render = Duration::from_nanos(frame_time);
+    self.wakeup = Duration::from_nanos(frame_time - watch_interval);
     refresh_rate > 0
   }
 
-  fn render(&self) -> bool{   self.last.elapsed() >= self.shutter }
-  fn wakeup(&self) -> bool{   self.last.elapsed() >= self.shutter * 9/10 }
-  fn sleep(&self) -> Instant{ self.last            + self.shutter * 9/10 }
+  fn on_next_frame<F:Fn()>(&mut self, draw:F) -> ControlFlow{
+    if self.last.elapsed() >= self.render{
+      self.last = Instant::now();
+      draw();
+    }
+
+    match self.last.elapsed() < self.wakeup {
+      true => ControlFlow::WaitUntil(self.last + self.wakeup),
+      false => ControlFlow::Poll,
+    }
+  }
 }
 
 #[derive(Debug)]
@@ -576,7 +583,7 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
     if new_loop{
       // starting a new loop after a previous one has exited apparently leaves
       // the control_flow enum still set to Exit
-      *control_flow = ControlFlow::WaitUntil(cadence.sleep());
+      *control_flow = ControlFlow::Wait;
 
       // do an initial roundtrip to sync up the Window object's state attrs
       match dispatch.call(&mut cx, null, argv()){
@@ -598,14 +605,9 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         if is_done{
           *control_flow = ControlFlow::Exit;
         }else if is_animated{
-          if cadence.render(){
-            cadence.next();
-            view.context.window().request_redraw();
-          }else if cadence.wakeup(){
-            *control_flow = ControlFlow::Poll;
-          }else{
-            *control_flow = ControlFlow::WaitUntil(cadence.sleep());
-          }
+          *control_flow = cadence.on_next_frame(||
+            view.context.window().request_redraw()
+          );
         }
       }
 
@@ -648,7 +650,7 @@ pub fn begin_display_loop(mut cx: FunctionContext) -> JsResult<JsUndefined> {
       Event::MainEventsCleared => {
         if !event_queue.changes.is_empty(){
 
-          // relay UI event-related state changes
+          // dispatch UI event-related state changes
           let changes = event_queue.digest(&mut cx);
           match dispatch.call(&mut cx, null, changes){
             Ok(result) => {
