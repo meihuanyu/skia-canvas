@@ -187,6 +187,7 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
   cx.export_function("CanvasRenderingContext2D_set_shadowOffsetX", ctx::set_shadowOffsetX)?;
   cx.export_function("CanvasRenderingContext2D_set_shadowOffsetY", ctx::set_shadowOffsetY)?;
 
-  cx.export_function("display", window::begin_display_loop)?;
+  cx.export_function("displayWindow", window::display)?;
+
   Ok(())
 }
