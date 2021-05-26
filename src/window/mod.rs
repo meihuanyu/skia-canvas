@@ -79,8 +79,10 @@ pub fn display(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let thread_proxy = runloop.create_proxy();
   std::thread::spawn(move || {
     loop{
-      std::thread::sleep(std::time::Duration::from_secs(1));
-      thread_proxy.send_event(CanvasEvent::Heartbeat).ok();
+      std::thread::sleep(std::time::Duration::from_millis(500));
+      if thread_proxy.send_event(CanvasEvent::Heartbeat).is_err(){
+        break
+      }
     }
   });
 
