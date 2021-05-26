@@ -135,15 +135,6 @@ impl View{
     self.context.window().fullscreen().is_some()
   }
 
-  pub fn go_fullscreen(&mut self, to_full:bool){
-    let mode = match to_full{
-      true => Some(Fullscreen::Borderless(None)),
-      false => None
-    };
-
-    self.context.window().set_fullscreen(mode);
-  }
-
   pub fn request_redraw(&self){
     self.context.window().request_redraw()
   }

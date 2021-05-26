@@ -1,8 +1,8 @@
 use std::time::{Instant, Duration};
 use neon::prelude::*;
 use glutin::platform::run_return::EventLoopExtRunReturn;
-use glutin::event::{Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use glutin::event_loop::{ControlFlow, EventLoop};
+use glutin::event::{Event, WindowEvent};
 
 use crate::context::{BoxedContext2D};
 use crate::utils::{argv, color_arg};
@@ -103,38 +103,22 @@ pub fn display(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         }
       }
 
+
       Event::WindowEvent{event, ..} => match event {
+        WindowEvent::CloseRequested => { is_done = true; }
+
         WindowEvent::Resized(physical_size) => {
           event_queue.capture(&event, view.dpr());
 
+          // catch fullscreen changes kicked off by window widgets
           if is_fullscreen != view.in_fullscreen() {
             event_queue.went_fullscreen(!is_fullscreen);
             is_fullscreen = !is_fullscreen;
           }
           view.resize(physical_size);
         }
-        WindowEvent::CloseRequested => {
-          is_done = true;
-        }
-        WindowEvent::KeyboardInput { input: KeyboardInput {
-          virtual_keycode: Some(keycode), .. }, ..
-        } => {
-          if keycode==VirtualKeyCode::Escape {
-            if view.in_fullscreen(){
-              view.go_fullscreen(false);
-              event_queue.went_fullscreen(false);
-              is_fullscreen = false;
-            }else{
-              is_done = true;
-            }
-          }else{
-            event_queue.capture(&event, view.dpr());
-          }
-        }
-        _ => {
-          // all other WindowEvents
-          event_queue.capture(&event, view.dpr());
-        }
+
+        _ => { event_queue.capture(&event, view.dpr()); }
       }
 
       Event::MainEventsCleared => {
@@ -160,12 +144,13 @@ pub fn display(mut cx: FunctionContext) -> JsResult<JsUndefined> {
             Err(_) => is_done = true
           }
         }
-
       }
+
       Event::RedrawRequested(..) => {
         view.redraw();
         is_stale = true;
-      },
+      }
+
       Event::RedrawEventsCleared => {
         if is_stale && is_animated{
           is_stale = false;
@@ -182,9 +167,7 @@ pub fn display(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         }
       },
 
-      _ => {
-        // all other generic Events
-      }
+      _ => { }
     }
   });
 
