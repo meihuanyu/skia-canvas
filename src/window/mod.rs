@@ -13,6 +13,10 @@ use view::View;
 mod queue;
 use queue::EventQueue;
 
+pub enum CanvasEvent{
+  Heartbeat
+}
+
 struct Cadence{
   last: Instant,
   wakeup: Duration,
@@ -58,18 +62,29 @@ pub fn display(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let null = cx.null();
 
   // display & event handling
-  let mut runloop = EventLoop::new();
+  let mut runloop = EventLoop::<CanvasEvent>::with_user_event();
   let mut event_queue = EventQueue::new();
   let mut view = View::new(&runloop, context, matte);
 
   // runloop state
   let mut cadence = Cadence::new();
+  let mut last_move = Instant::now();
   let mut new_loop = true;
   let mut is_stale = true;
   let mut is_fullscreen = false;
   let mut is_animated = false;
   let mut is_done = false;
 
+
+  let thread_proxy = runloop.create_proxy();
+  std::thread::spawn(move || {
+    loop{
+      std::thread::sleep(std::time::Duration::from_secs(1));
+      thread_proxy.send_event(CanvasEvent::Heartbeat).ok();
+    }
+  });
+
+  // let proxy = runloop.create_proxy();
   runloop.run_return(|event, _, control_flow| {
 
     if new_loop{
@@ -103,22 +118,28 @@ pub fn display(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         }
       }
 
-
-      Event::WindowEvent{event, ..} => match event {
-        WindowEvent::CloseRequested => { is_done = true; }
-
-        WindowEvent::Resized(physical_size) => {
-          event_queue.capture(&event, view.dpr());
-
-          // catch fullscreen changes kicked off by window widgets
-          if is_fullscreen != view.in_fullscreen() {
-            event_queue.went_fullscreen(!is_fullscreen);
-            is_fullscreen = !is_fullscreen;
-          }
-          view.resize(physical_size);
+      Event::UserEvent(CanvasEvent::Heartbeat) => {
+        if is_animated && is_fullscreen && last_move.elapsed() > Duration::from_secs(1){
+          view.hide_cursor();
         }
+      }
 
-        _ => { event_queue.capture(&event, view.dpr()); }
+      Event::WindowEvent{event, ..} => {
+        event_queue.capture(&event, view.dpr());
+
+        match event {
+          WindowEvent::CloseRequested => { is_done = true; }
+          WindowEvent::CursorMoved{..} => { last_move = Instant::now(); }
+          WindowEvent::Resized(physical_size) => {
+            // catch fullscreen changes kicked off by window widgets
+            if is_fullscreen != view.in_fullscreen() {
+              event_queue.went_fullscreen(!is_fullscreen);
+              is_fullscreen = !is_fullscreen;
+            }
+            view.resize(physical_size);
+          }
+          _ => {  }
+        }
       }
 
       Event::MainEventsCleared => {

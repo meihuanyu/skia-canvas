@@ -14,6 +14,7 @@ use gl::types::*;
 
 use crate::context::{BoxedContext2D};
 use crate::utils::to_cursor_icon;
+use super::CanvasEvent;
 
 type WindowedContext = glutin::ContextWrapper<glutin::PossiblyCurrent, glutin::window::Window>;
 
@@ -29,7 +30,7 @@ pub struct View{
 }
 
 impl View{
-  pub fn new(runloop:&EventLoop<()>, c2d:Handle<BoxedContext2D>, backdrop:Option<Color>) -> Self{
+  pub fn new(runloop:&EventLoop<CanvasEvent>, c2d:Handle<BoxedContext2D>, backdrop:Option<Color>) -> Self{
     let backdrop = backdrop.unwrap_or(Color::BLACK);
 
     let wb = WindowBuilder::new()
@@ -125,6 +126,10 @@ impl View{
     self.context.resize(physical_size);
     self.surface.replace(surface);
     self.gl.replace(gl);
+  }
+
+  pub fn hide_cursor(&self){
+    self.context.window().set_cursor_visible(false);
   }
 
   pub fn go_visible(&mut self, to_visible:bool){
