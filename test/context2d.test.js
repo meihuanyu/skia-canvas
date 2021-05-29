@@ -236,6 +236,11 @@ describe("Context2D", ()=>{
             blackPixel ? BLACK : WHITE
           )
         }
+
+        let empty = new Canvas()
+        let unpattern = ctx.createPattern(empty, 'repeat')
+        ctx.fillStyle = unpattern;
+        ctx.fillRect(0,0, 20,20);
       })
 
       test("with local transform", () => {

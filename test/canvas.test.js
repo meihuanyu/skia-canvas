@@ -142,6 +142,12 @@ describe("Canvas", ()=>{
     })
     afterEach(() => fs.rmdirSync(TMP, {recursive:true}) )
 
+    test("a context", async() => {
+      let empty = new Canvas()
+      let promise = empty.saveAs(`${TMP}/empty.png`)
+      await expect(promise).resolves.toBe(undefined)
+    })
+
     test("JPEGs", async ()=>{
       await Promise.all([
         canvas.saveAs(`${TMP}/output1.jpg`),
@@ -317,6 +323,12 @@ describe("Canvas", ()=>{
       ctx.fill()
     })
     afterEach(() => fs.rmdirSync(TMP, {recursive:true}) )
+
+    test("a context", () => {
+      let empty = new Canvas()
+      empty.async = false
+      expect(() => empty.saveAs(`${TMP}/empty.png`) ).not.toThrow()
+    })
 
     test("JPEGs", ()=>{
       canvas.saveAs(`${TMP}/output1.jpg`)
