@@ -193,6 +193,9 @@ pub fn arc(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let ccw = bool_arg_or(&mut cx, 6, false);
 
   if let [x, y, radius, start_angle, end_angle] = nums.as_slice(){
+    if *radius < 0.0 {
+      return cx.throw_range_error("Arc radius must be non-negative");
+    }
     this.add_ellipse((*x, *y), (*radius, *radius), 0.0, *start_angle, *end_angle, ccw);
   }
 
@@ -206,7 +209,9 @@ pub fn arcTo(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let coords = float_args(&mut cx, 1..5)?;
   let radius = float_arg(&mut cx, 5, "radius")?;
 
-  if let [x1, y1, x2, y2] = coords.as_slice(){
+  if radius < 0.0 {
+    return cx.throw_range_error("Arc radius must be non-negative");
+  }else if let [x1, y1, x2, y2] = coords.as_slice(){
     this.scoot(*x1, *y1);
     this.path.arc_to_tangent((*x1, *y1), (*x2, *y2), radius);
   }
@@ -223,7 +228,7 @@ pub fn ellipse(mut cx: FunctionContext) -> JsResult<JsUndefined> {
 
   if let [x, y, x_radius, y_radius, rotation, start_angle, end_angle] = nums.as_slice(){
     if *x_radius < 0.0 || *y_radius < 0.0 {
-      return cx.throw_error("radii cannot be negative")
+      return cx.throw_range_error("Ellipse radii must be non-negative")
     }
 
     this.add_ellipse((*x, *y), (*x_radius, *y_radius), *rotation, *start_angle, *end_angle, ccw);

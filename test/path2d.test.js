@@ -123,6 +123,7 @@ describe("Path2D", ()=>{
 
       expect(pixel(196, 112)).toEqual(BLACK)
       expect(pixel(150, 150)).toEqual(WHITE)
+      expect(() => p.arc(0, 0, -999, 0, 2*Math.PI) ).toThrowError("must be non-negative")
       expect(() => p.arc(150, 150, 75, Math.PI/8, false) ).toThrowError("Not enough arguments")
       expect(() => p.arc(150, 150, 75, Math.PI/8, Math.PI*1.5) ).not.toThrow()
     })
@@ -147,6 +148,9 @@ describe("Path2D", ()=>{
       expect(pixel(127, 175)).toEqual(CLEAR)
       expect(pixel(130, 60)).toEqual(CLEAR)
       expect(pixel(163, 100)).toEqual(BLACK)
+      expect(() => p.ellipse(0,0, -999, 100, 0, 0, 2*Math.PI) ).toThrowError("must be non-negative")
+      expect(() => p.ellipse(0,0, 100, -999, 0, 0, 2*Math.PI) ).toThrowError("must be non-negative")
+      expect(() => p.ellipse(0,0, 0, 0, 0, 0, 2*Math.PI) ).not.toThrow()
     })
   })
 
