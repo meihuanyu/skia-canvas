@@ -198,6 +198,7 @@ impl View{
 
   pub fn handle_events(&mut self, cx:&mut FunctionContext, result:Handle<JsValue>) -> (bool, bool, u64){
     let window = self.context.window();
+    let mut needs_redraw = false;
     let mut should_quit = false;
     let mut to_fullscreen = false;
     let mut to_fps = 0;
@@ -214,6 +215,7 @@ impl View{
             self.pict = pict;
             self.dims = (bounds.width(), bounds.height());
             self.ident = ctx.ident();
+            needs_redraw = true;
           }
         }
 
@@ -295,6 +297,10 @@ impl View{
         }
 
       }
+    }
+
+    if to_fps == 0 && needs_redraw{
+      self.request_redraw();
     }
 
     (should_quit, to_fullscreen, to_fps)

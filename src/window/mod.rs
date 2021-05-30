@@ -159,10 +159,6 @@ pub fn display(mut cx: FunctionContext) -> JsResult<JsUndefined> {
               is_animated = cadence.set_frame_rate(to_fps);
               is_fullscreen = to_fullscreen;
               is_done = should_quit;
-
-              if !is_animated{
-                view.request_redraw();
-              }
             },
             Err(_) => is_done = true
           }
