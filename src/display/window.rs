@@ -32,6 +32,7 @@ pub struct Window{
   cursor: Option<CursorIcon>,
   dpr: f64,
 
+  visible: bool,
   animated: bool,
   fps: u64,
 
@@ -55,6 +56,7 @@ impl Window{
       dpr: 1.0,
       fps: 0,
 
+      visible:false,
       closed: false,
       animated: false,
       fullscreen: false,
@@ -189,6 +191,17 @@ impl Window{
             }
           }
         }
+
+        // 10: visible flag
+        if let Ok(is_visible) = vals[10].downcast::<JsBoolean, _>(cx){
+          let is_visible = is_visible.value(cx);
+          if is_visible != self.visible{
+            self.visible = is_visible;
+            self.proxy.send_event(CanvasEvent::Visible(is_visible))?
+          }
+
+        }
+
       }
     }
 
