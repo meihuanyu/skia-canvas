@@ -5,6 +5,7 @@
 use std::time::{Instant, Duration};
 use neon::prelude::*;
 use neon::result::Throw;
+use crossbeam::channel::Sender;
 use skia_safe::{Color};
 use glutin::platform::run_return::EventLoopExtRunReturn;
 use glutin::event_loop::{ControlFlow, EventLoop, EventLoopProxy, EventLoopClosed};
@@ -24,7 +25,8 @@ pub struct Window{
   proxy: EventLoopProxy<CanvasEvent>,
   position: LogicalPosition<i32>,
   size: LogicalSize<u32>,
-  events: event::Sieve,
+  ui_events: event::Sieve,
+  js_events: Option<Sender<CanvasEvent>>,
 
   title: String,
   cursor: Option<CursorIcon>,
@@ -45,7 +47,8 @@ impl Window{
       proxy: runloop.create_proxy(),
       position: LogicalPosition::new(0,0),
       size: LogicalSize::new(width as u32, height as u32),
-      events: event::Sieve::new(),
+      ui_events: event::Sieve::new(),
+      js_events: None,
 
       title: "".to_string(),
       cursor: Some(CursorIcon::Default),
@@ -60,7 +63,9 @@ impl Window{
   }
 
   pub fn new_view(&mut self, runloop:&EventLoop<CanvasEvent>, c2d:Handle<BoxedContext2D>, backdrop:Option<Color>) -> View {
-    let mut view = View::new(&runloop, c2d, backdrop, self.size.width as f32, self.size.height as f32);
+    let (s, r) = crossbeam::channel::unbounded::<CanvasEvent>();
+    let mut view = View::new(&runloop, c2d, r, backdrop, self.size.width as f32, self.size.height as f32);
+    self.js_events = Some(s);
     self.dpr = view.dpr();
     view
   }
@@ -78,27 +83,31 @@ impl Window{
     if let Event::WindowEvent{event, ..} = event {
       if let WindowEvent::Resized(physical_size) = event {
         self.size = LogicalSize::from_physical(*physical_size, self.dpr);
+        // self.proxy.send_event(CanvasEvent::Resized(*physical_size)).ok();
+        if let Some(channel) = &self.js_events{
+          channel.send(CanvasEvent::Resized(*physical_size)).unwrap();
+        }
       }
 
       if let WindowEvent::Moved(physical_pt) = event {
         self.position = LogicalPosition::from_physical(*physical_pt, self.dpr);
       }
 
-      self.events.capture(&event, self.dpr)
+      self.ui_events.capture(&event, self.dpr)
     }
   }
 
   pub fn communicate_pending(&mut self, cx: &mut FunctionContext, callback:&Handle<JsFunction>) -> ControlFlow {
-    match self.events.is_empty(){
+    match self.ui_events.is_empty(){
       true => ControlFlow::Poll,
       false => self.communicate(cx, callback)
     }
   }
 
   pub fn communicate(&mut self, cx: &mut FunctionContext, callback:&Handle<JsFunction>) -> ControlFlow {
-    let gui_events = self.events.serialized(cx);
+    let changes = self.ui_events.serialized(cx);
     let null = cx.null();
-    if let Ok(response) = callback.call(cx, null, gui_events){
+    if let Ok(response) = callback.call(cx, null, changes){
       if self.handle_feedback(cx, response).is_ok(){
         return ControlFlow::Poll
       }

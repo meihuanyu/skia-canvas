@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::convert::TryInto;
 use neon::prelude::*;
+use crossbeam::channel::Receiver;
 
 use skia_safe::gpu::gl::FramebufferInfo;
 use skia_safe::gpu::{BackendRenderTarget, SurfaceOrigin, DirectContext};
@@ -29,11 +30,19 @@ pub struct View{
   surface: RefCell<Surface>,
   gl: RefCell<DirectContext>,
   needs_redraw: bool,
-  backdrop: Color
+  backdrop: Color,
+  js_events:Receiver<CanvasEvent>,
 }
 
 impl View{
-  pub fn new(runloop:&EventLoop<CanvasEvent>, c2d:Handle<BoxedContext2D>, backdrop:Option<Color>, width:f32, height:f32) -> Self{
+  pub fn new(
+    runloop:&EventLoop<CanvasEvent>,
+    c2d:Handle<BoxedContext2D>,
+    js_events:Receiver<CanvasEvent>,
+    backdrop:Option<Color>,
+    width:f32,
+    height:f32
+  ) -> Self{
     let backdrop = backdrop.unwrap_or(Color::BLACK);
 
     let wb = WindowBuilder::new()
@@ -77,7 +86,8 @@ impl View{
       surface: RefCell::new(surface),
       gl: RefCell::new(gl),
       needs_redraw: true,
-      backdrop
+      backdrop,
+      js_events,
     }
   }
 
@@ -153,7 +163,18 @@ impl View{
   pub fn handle_event(&mut self, event:&CanvasEvent){
     let mut window = self.context.window();
     let dpr = window.scale_factor() as f64;
+
+    // for now, listen to the channel for Resized WindowEvents repackaged by the Window
+    // (eventually, the channel will be the only way to hand them off)
+    for e in self.js_events.try_iter(){
+      match e {
+        CanvasEvent::Resized(physical_size) => {
+          self.resize(physical_size);
+          self.redraw();
+        },
+        _ => {}
       }
+    }
 
     match event{
       CanvasEvent::Visible(visible) => window.set_visible(*visible),
