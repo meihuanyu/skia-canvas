@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use neon::prelude::*;
 use glutin::window::CursorIcon;
-use glutin::dpi::{LogicalSize, LogicalPosition};
+use glutin::dpi::{LogicalSize, LogicalPosition, PhysicalSize};
 use glutin::event::{KeyboardInput, VirtualKeyCode, WindowEvent, ModifiersState,
                     ElementState, MouseButton, MouseScrollDelta};
 
@@ -23,6 +23,7 @@ pub enum CanvasEvent{
   Cursor(Option<CursorIcon>),
   Position(LogicalPosition<i32>),
   Size(LogicalSize<u32>),
+  Resized(PhysicalSize<u32>),
   Heartbeat,
   Render,
   Close,
