@@ -9,12 +9,14 @@ use skia_safe::{Rect, Color, ColorType, Surface, Picture};
 use glutin::dpi::{LogicalSize, PhysicalSize, LogicalPosition};
 use glutin::event_loop::{EventLoop};
 use glutin::window::{WindowBuilder, Fullscreen};
+use glutin::event::{Event, WindowEvent};
 use glutin::GlProfile;
 use gl::types::*;
 
 use crate::context::{BoxedContext2D};
 use crate::utils::to_cursor_icon;
 use super::CanvasEvent;
+
 
 type WindowedContext = glutin::ContextWrapper<glutin::PossiblyCurrent, glutin::window::Window>;
 
@@ -26,11 +28,12 @@ pub struct View{
   title: String,
   surface: RefCell<Surface>,
   gl: RefCell<DirectContext>,
+  needs_redraw: bool,
   backdrop: Color
 }
 
 impl View{
-  pub fn new(runloop:&EventLoop<CanvasEvent>, c2d:Handle<BoxedContext2D>, backdrop:Option<Color>) -> Self{
+  pub fn new(runloop:&EventLoop<CanvasEvent>, c2d:Handle<BoxedContext2D>, backdrop:Option<Color>, width:f32, height:f32) -> Self{
     let backdrop = backdrop.unwrap_or(Color::BLACK);
 
     let wb = WindowBuilder::new()
@@ -50,11 +53,7 @@ impl View{
     let context = unsafe { context.make_current().unwrap() };
     gl::load_with(|s| context.get_proc_address(&s));
 
-    let mut ctx = c2d.borrow_mut();
-    let bounds = ctx.bounds;
-    let (width, height) = (bounds.width(), bounds.height());
     let size = LogicalSize::new(width, height);
-
     context.window().set_inner_size(size);
     if let Some(monitor) = context.window().current_monitor(){
       let screen_size = LogicalSize::<f32>::from_physical(
@@ -67,21 +66,23 @@ impl View{
       context.window().set_outer_position(position);
     }
 
+    let mut ctx = c2d.borrow_mut();
     let (gl, surface) = View::gl_surface(&context);
     View{
       context,
       ident: ctx.ident(),
       title: "".to_string(),
       pict: ctx.get_picture(None).unwrap(),
-      dims: (width, height),
+      dims: (ctx.bounds.width(), ctx.bounds.height()),
       surface: RefCell::new(surface),
       gl: RefCell::new(gl),
+      needs_redraw: true,
       backdrop
     }
   }
 
   fn gl_surface(windowed_context: &WindowedContext) -> (DirectContext, Surface) {
-    let mut gl_context = DirectContext::new_gl(None, None).unwrap();
+    let mut gl_context = DirectContext::new_gl(None, None).expect("Could not initialize OpenGL");
 
     let fb_info = {
       let mut fboid: GLint = 0;
@@ -128,22 +129,6 @@ impl View{
     self.gl.replace(gl);
   }
 
-  pub fn hide_cursor(&self){
-    self.context.window().set_cursor_visible(false);
-  }
-
-  pub fn go_visible(&mut self, to_visible:bool){
-    self.context.window().set_visible(to_visible);
-  }
-
-  pub fn in_fullscreen(&self) -> bool {
-    self.context.window().fullscreen().is_some()
-  }
-
-  pub fn request_redraw(&self){
-    self.context.window().request_redraw()
-  }
-
   pub fn redraw(&self){
     let mut surface = self.surface.borrow_mut();
     let canvas = surface.canvas();
@@ -165,144 +150,62 @@ impl View{
     self.context.swap_buffers().unwrap();
   }
 
-  pub fn animate(&mut self, cx:&mut FunctionContext, result:Handle<JsValue>) -> (bool, u64){
-    let mut should_quit = false;
-    let mut to_fps = 0;
-
-    if let Ok(array) = result.downcast::<JsArray, _>(cx){
-      if let Ok(vals) = array.to_vec(cx){
-
-        if let Ok(c2d) = vals[0].downcast::<BoxedContext2D, _>(cx){
-          let mut ctx = c2d.borrow_mut();
-          if self.ident != ctx.ident(){
-            let pict = ctx.get_picture(None).unwrap();
-            let bounds = ctx.bounds;
-            self.pict = pict;
-            self.dims = (bounds.width(), bounds.height());
-            self.ident = ctx.ident();
-          }
-        }
-
-        if let Ok(active) = vals[1].downcast::<JsBoolean, _>(cx){
-          if !active.value(cx){ should_quit = true }
-        }
-
-        if let Ok(fps) = vals[2].downcast::<JsNumber, _>(cx){
-          to_fps = fps.value(cx) as u64;
-        }
-
+  pub fn handle_event(&mut self, event:&Event<CanvasEvent>){
+    let mut window = self.context.window();
+    let dpr = window.scale_factor() as f64;
+    match event{
+      Event::WindowEvent{
+        event: WindowEvent::Resized(physical_size), ..
+      } => {
+        self.resize(*physical_size);
+        self.redraw();
       }
-    }
-    (should_quit, to_fps)
-  }
 
-  pub fn handle_events(&mut self, cx:&mut FunctionContext, result:Handle<JsValue>) -> (bool, bool, u64){
-    let window = self.context.window();
-    let mut needs_redraw = false;
-    let mut should_quit = false;
-    let mut to_fullscreen = false;
-    let mut to_fps = 0;
+      Event::UserEvent(event) => {
+        // println!("event: {:?}", event);
+        match event{
+          CanvasEvent::Visible(visible) => window.set_visible(*visible),
+          CanvasEvent::Title(title) => window.set_title(title),
+          CanvasEvent::Size(size) => window.set_inner_size(*size),
+          CanvasEvent::Position(position) => window.set_outer_position(*position),
 
-    if let Ok(array) = result.downcast::<JsArray, _>(cx){
-      if let Ok(vals) = array.to_vec(cx){
-
-        // 0: context
-        if let Ok(c2d) = vals[0].downcast::<BoxedContext2D, _>(cx){
-          let mut ctx = c2d.borrow_mut();
-          if self.ident != ctx.ident(){
-            let pict = ctx.get_picture(None).unwrap();
-            let bounds = ctx.bounds;
-            self.pict = pict;
-            self.dims = (bounds.width(), bounds.height());
-            self.ident = ctx.ident();
-            needs_redraw = true;
-          }
-        }
-
-        // 1: title
-        if let Ok(title) = vals[1].downcast::<JsString, _>(cx){
-          let title = title.value(cx);
-          if self.title != title{
-            self.title = title;
-            window.set_title(&self.title);
-          }
-        }
-
-        // 2: 'keep running' flag
-        if let Ok(active) = vals[2].downcast::<JsBoolean, _>(cx){
-          if !active.value(cx){ should_quit = true }
-        }
-
-        // 3: fullscreen flag
-        if let Ok(is_full) = vals[3].downcast::<JsBoolean, _>(cx){
-          let is_full = is_full.value(cx);
-          let was_full = window.fullscreen().is_some();
-          if is_full != was_full{
-            match is_full{
-              true => window.set_fullscreen( Some(Fullscreen::Borderless(None)) ),
-              false => window.set_fullscreen( None )
-            }
-          }
-          to_fullscreen = is_full
-        }
-
-        // 4: fps (or zero to disable animation)
-        if let Ok(fps) = vals[4].downcast::<JsNumber, _>(cx){
-          to_fps = fps.value(cx) as u64;
-        }
-
-        // 5+6: window size
-        let dpr = self.dpr();
-        let old_dims = window.inner_size();
-        let old_dims = LogicalSize::from_physical(old_dims, dpr);
-        let mut new_dims = old_dims;
-        if let Ok(width) = vals[5].downcast::<JsNumber, _>(cx){
-          new_dims.width = width.value(cx) as i32;
-        }
-        if let Ok(height) = vals[6].downcast::<JsNumber, _>(cx){
-          new_dims.height = height.value(cx) as i32;
-        }
-        if new_dims != old_dims{
-          window.set_inner_size(new_dims);
-        }
-
-        // 7+8: window position
-        let old_pos = window.outer_position().unwrap();
-        let old_pos = LogicalPosition::from_physical(old_pos, dpr);
-        let mut new_pos = old_pos;
-        if let Ok(x) = vals[7].downcast::<JsNumber, _>(cx){
-          new_pos.x = x.value(cx) as i32;
-        }
-        if let Ok(y) = vals[8].downcast::<JsNumber, _>(cx){
-          new_pos.y = y.value(cx) as i32;
-        }
-        if new_pos != old_pos{
-          window.set_outer_position(new_pos);
-        }
-
-        // 9: cursor
-        if let Ok(cursor_style) = vals[9].downcast::<JsString, _>(cx){
-          let cursor_style = cursor_style.value(cx);
-          match to_cursor_icon(&cursor_style){
-            Some(icon) => {
-              window.set_cursor_icon(icon);
-              window.set_cursor_visible(true);
-            },
-            None => {
-              if cursor_style == "none" {
-                window.set_cursor_visible(false);
+          CanvasEvent::Page(page) => {
+            if page.ident != self.ident{
+              if let Some(pict) = page.get_picture(){
+                self.pict = pict;
+                self.dims = (page.bounds.width(), page.bounds.height());
+                self.ident = page.ident;
+                self.needs_redraw = true;
               }
             }
           }
+
+          CanvasEvent::Cursor(cursor_icon) => {
+            window.set_cursor_visible(cursor_icon.is_some());
+            if let Some(icon) = cursor_icon{
+              window.set_cursor_icon(*icon);
+            }
+          },
+
+          CanvasEvent::Render => {
+            // if self.needs_redraw{
+              self.redraw();
+              self.needs_redraw = false;
+              self.context.window().request_redraw();
+            // }
+          }
+
+
+          // Heartbeat,
+          // FrameRate(u64),
+          // Fullscreen(bool),
+          // Close,
+
+          _ => {}
         }
-
       }
-    }
 
-    if to_fps == 0 && needs_redraw{
-      self.request_redraw();
+      _ => {}
     }
-
-    (should_quit, to_fullscreen, to_fps)
   }
 }

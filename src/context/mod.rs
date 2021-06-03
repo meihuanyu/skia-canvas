@@ -180,18 +180,22 @@ impl Context2D{
   pub fn with_canvas<F>(&self, f:F)
     where F:FnOnce(&mut SkCanvas)
   {
-    let mut rev = self.rev.borrow_mut();
+    // incrememnt revision
+    *self.rev.borrow_mut() += 1;
+
     let recorder = Arc::clone(&self.recorder);
     let mut recorder = recorder.lock().unwrap();
     if let Some(canvas) = recorder.recording_canvas() {
       f(canvas);
-      *rev += 1;
     }
   }
 
   pub fn render_to_canvas<F>(&self, paint:&Paint, f:F)
     where F:Fn(&mut SkCanvas, &Paint)
   {
+    // increment revision
+    *self.rev.borrow_mut() += 1;
+
     match self.state.global_composite_operation{
       BlendMode::SrcIn | BlendMode::SrcOut |
       BlendMode::DstIn | BlendMode::DstOut |
@@ -487,6 +491,7 @@ impl Context2D{
 
   pub fn get_page(&self) -> Page {
     Page{
+      ident: self.ident(),
       recorder: Arc::clone(&self.recorder),
       bounds: self.bounds,
       clip: self.state.clip.clone(),

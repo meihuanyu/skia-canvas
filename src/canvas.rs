@@ -33,6 +33,7 @@ impl Canvas{
 //
 
 pub struct Page{
+  pub ident: (usize, usize),
   pub recorder: Arc<Mutex<PictureRecorder>>,
   pub bounds: Rect,
   pub clip: SkPath,
@@ -42,9 +43,20 @@ pub struct Page{
 unsafe impl Send for Page{}
 unsafe impl Sync for Page{}
 
+use std::fmt;
+
+impl fmt::Debug for Page{
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("Page")
+     .field("ident", &self.ident)
+     .field("bounds", &self.bounds)
+     .finish()
+  }
+}
+
 impl Page{
 
-  fn get_picture(&self) -> Option<Picture> {
+  pub fn get_picture(&self) -> Option<Picture> {
     // stop the recorder to take a snapshot then restart it again
     let recorder = Arc::clone(&self.recorder);
     let mut recorder = recorder.lock().unwrap();

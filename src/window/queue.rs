@@ -1,12 +1,35 @@
+#![allow(unused_mut)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(dead_code)]
 use std::collections::HashMap;
 use neon::prelude::*;
+use glutin::window::CursorIcon;
 use glutin::dpi::{LogicalSize, LogicalPosition};
 use glutin::event::{KeyboardInput, VirtualKeyCode, WindowEvent, ModifiersState,
                     ElementState, MouseButton, MouseScrollDelta};
 
-use crate::utils::from_key_code;
+use crate::utils::{from_key_code, to_cursor_icon};
+use crate::context::BoxedContext2D;
+use crate::canvas::Page;
 
-enum StateChange{
+#[derive(Debug)]
+pub enum CanvasEvent{
+  Page(Page),
+  Title(String),
+  FrameRate(u64),
+  // Fullscreen(bool),
+  Visible(bool),
+  Cursor(Option<CursorIcon>),
+  Position(LogicalPosition<i32>),
+  Size(LogicalSize<u32>),
+  Heartbeat,
+  Render,
+  Close,
+}
+
+#[derive(Debug)]
+pub enum UiEvent{
   Keyboard{event:String, key:String, code:u32, repeat:bool},
   Input(char),
   Mouse(String),
@@ -16,18 +39,19 @@ enum StateChange{
   Fullscreen(bool),
 }
 
-pub struct EventQueue{
-  changes: Vec<StateChange>,
+#[derive(Debug)]
+pub struct Sieve{
+  queue: Vec<UiEvent>,
   key_modifiers: ModifiersState,
   key_repeats: HashMap<VirtualKeyCode, i32>,
   mouse_point: LogicalPosition::<i32>,
   mouse_button: Option<u16>,
 }
 
-impl EventQueue {
+impl Sieve{
   pub fn new() -> Self {
-    EventQueue{
-      changes: vec![],
+    Sieve{
+      queue: vec![],
       key_modifiers: ModifiersState::empty(),
       key_repeats: HashMap::new(),
       mouse_point: LogicalPosition::<i32>{x:0, y:0},
@@ -36,24 +60,19 @@ impl EventQueue {
   }
 
   pub fn is_empty(&self) -> bool{
-    self.changes.len() == 0
-  }
-
-  pub fn went_fullscreen(&mut self, did_go_fullscreen:bool){
-    self.changes.push(StateChange::Fullscreen(did_go_fullscreen));
-    self.key_repeats.clear(); // keyups don't get delivered during the transition apparently?
+    self.queue.len() == 0
   }
 
   pub fn capture(&mut self, event:&WindowEvent, dpr:f64){
     match event{
       WindowEvent::Moved(physical_pt) => {
         let logical_pt:LogicalPosition<i32> = LogicalPosition::from_physical(*physical_pt, dpr);
-        self.changes.push(StateChange::Position(logical_pt));
+        self.queue.push(UiEvent::Position(logical_pt));
       }
 
       WindowEvent::Resized(physical_size) => {
         let logical_size:LogicalSize<u32> = LogicalSize::from_physical(*physical_size, dpr);
-        self.changes.push(StateChange::Size(logical_size));
+        self.queue.push(UiEvent::Size(logical_size));
       }
 
       WindowEvent::ModifiersChanged(state) => {
@@ -61,24 +80,24 @@ impl EventQueue {
       }
 
       WindowEvent::ReceivedCharacter(character) => {
-        self.changes.push(StateChange::Input(*character));
+        self.queue.push(UiEvent::Input(*character));
       }
 
       WindowEvent::CursorEntered{..} => {
         let mouse_event = "mouseenter".to_string();
-        self.changes.push(StateChange::Mouse(mouse_event));
+        self.queue.push(UiEvent::Mouse(mouse_event));
       }
 
       WindowEvent::CursorLeft{..} => {
         let mouse_event = "mouseleave".to_string();
-        self.changes.push(StateChange::Mouse(mouse_event));
+        self.queue.push(UiEvent::Mouse(mouse_event));
       }
 
       WindowEvent::CursorMoved{position, ..} => {
         self.mouse_point = LogicalPosition::from_physical(*position, dpr);
 
         let mouse_event = "mousemove".to_string();
-        self.changes.push(StateChange::Mouse(mouse_event));
+        self.queue.push(UiEvent::Mouse(mouse_event));
       }
 
       WindowEvent::MouseWheel{delta, ..} => {
@@ -90,7 +109,7 @@ impl EventQueue {
             LogicalPosition::<f64>{x:*h as f64, y:*v as f64}
           }
         };
-        self.changes.push(StateChange::Wheel(dxdy));
+        self.queue.push(UiEvent::Wheel(dxdy));
       }
 
       WindowEvent::MouseInput{state, button, ..} => {
@@ -105,7 +124,7 @@ impl EventQueue {
           MouseButton::Right => Some(2),
           MouseButton::Other(num) => Some(*num)
         };
-        self.changes.push(StateChange::Mouse(mouse_event));
+        self.queue.push(UiEvent::Mouse(mouse_event));
       }
 
       WindowEvent::KeyboardInput { input:
@@ -124,7 +143,7 @@ impl EventQueue {
         };
 
         if event_type == "keyup" || count < 2{
-          self.changes.push(StateChange::Keyboard{
+          self.queue.push(UiEvent::Keyboard{
             event: event_type.to_string(),
             key: from_key_code(*keycode),
             code: *scancode,
@@ -137,8 +156,7 @@ impl EventQueue {
     }
   }
 
-  pub fn digest<'a>(&mut self, cx: &mut FunctionContext<'a>) -> Vec<Handle<'a, JsValue>>{
-
+  pub fn serialized<'a>(&mut self, cx: &mut FunctionContext<'a>) -> Vec<Handle<'a, JsValue>>{
     let mut payload:Vec<Handle<JsValue>> = (0..17).map(|_|
       //   0–5: x, y, w, h, fullscreen, [alt, ctrl, meta, shift]
       //  6–10: input, keyEvent, key, code, repeat,
@@ -150,36 +168,36 @@ impl EventQueue {
     let mut include_mods = false;
     let mut mouse_events = vec![];
 
-    for change in &self.changes {
+    for change in &self.queue {
       match change{
-        StateChange::Position(LogicalPosition{x, y}) => {
+        UiEvent::Position(LogicalPosition{x, y}) => {
           payload[0] = cx.number(*x).upcast::<JsValue>(); // x
           payload[1] = cx.number(*y).upcast::<JsValue>(); // y
         }
-        StateChange::Size(LogicalSize{width, height}) => {
+        UiEvent::Size(LogicalSize{width, height}) => {
           payload[2] = cx.number(*width).upcast::<JsValue>();  // width
           payload[3] = cx.number(*height).upcast::<JsValue>(); // height
         }
-        StateChange::Fullscreen(flag) => {
+        UiEvent::Fullscreen(flag) => {
           payload[4] = cx.boolean(*flag).upcast::<JsValue>(); // fullscreen
         }
-        StateChange::Input(character) => {
+        UiEvent::Input(character) => {
           include_mods = true;
           payload[6] = cx.string(character.to_string()).upcast::<JsValue>(); // input
         }
-        StateChange::Keyboard{event, key, code, repeat} => {
+        UiEvent::Keyboard{event, key, code, repeat} => {
           include_mods = true;
           payload[7] = cx.string(event).upcast::<JsValue>();     // keyup | keydown
           payload[8] = cx.string(key).upcast::<JsValue>();       // key
           payload[9] = cx.number(*code).upcast::<JsValue>();     // code
           payload[10] = cx.boolean(*repeat).upcast::<JsValue>(); // repeat
         }
-        StateChange::Mouse(event_type) => {
+        UiEvent::Mouse(event_type) => {
           include_mods = true;
           let event_name = cx.string(event_type).upcast::<JsValue>();
           mouse_events.push(event_name);
         }
-        StateChange::Wheel(delta) => {
+        UiEvent::Wheel(delta) => {
           payload[15] = cx.number(delta.x).upcast::<JsValue>(); // wheelX
           payload[16] = cx.number(delta.y).upcast::<JsValue>(); // wheelY
         }
@@ -217,9 +235,7 @@ impl EventQueue {
       payload[5] = mod_info.upcast::<JsValue>();
     }
 
-    self.changes.clear();
+    self.queue.clear();
     payload
   }
-
 }
-
