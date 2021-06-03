@@ -65,7 +65,7 @@ impl Window{
     view
   }
 
-  pub fn show_frame(&self){
+  pub fn show(&self){
     self.proxy.send_event(CanvasEvent::Visible(true)).ok();
   }
 

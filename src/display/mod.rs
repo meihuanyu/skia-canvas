@@ -87,7 +87,7 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
     if !running{
       // do an initial roundtrip to sync up the Window object's state attrs
       *control_flow = window.communicate(&mut cx, &dispatch);
-      window.show_frame();
+      window.show();
       running = true;
     }
 
