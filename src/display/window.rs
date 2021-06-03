@@ -18,13 +18,13 @@ use crate::context::BoxedContext2D;
 use crate::utils::{argv, color_arg, float_arg};
 use super::{CanvasEvent};
 use super::view::View;
-use super::queue;
+use super::event;
 
 pub struct Window{
   proxy: EventLoopProxy<CanvasEvent>,
   position: LogicalPosition<i32>,
   size: LogicalSize<u32>,
-  events: queue::Sieve,
+  events: event::Sieve,
 
   title: String,
   cursor: Option<CursorIcon>,
@@ -45,7 +45,7 @@ impl Window{
       proxy: runloop.create_proxy(),
       position: LogicalPosition::new(0,0),
       size: LogicalSize::new(width as u32, height as u32),
-      events: queue::Sieve::new(),
+      events: event::Sieve::new(),
 
       title: "".to_string(),
       cursor: Some(CursorIcon::Default),

@@ -16,12 +16,12 @@ use crate::canvas::Page;
 use crate::context::BoxedContext2D;
 use crate::utils::{argv, color_arg, float_arg};
 
-mod internal;
-mod queue;
+mod window;
+mod event;
 mod view;
 
-use internal::Window;
-use queue::CanvasEvent;
+use window::Window;
+use event::CanvasEvent;
 
 pub struct Cadence{
   rate: u64,
@@ -39,10 +39,6 @@ impl Cadence{
       render: Duration::from_nanos(1_000_000_000/rate),
       wakeup: Duration::from_nanos(1_000_000_000/rate * 9/10),
     }
-  }
-
-  pub fn active(&self) -> bool{
-    self.rate > 0
   }
 
   pub fn set_frame_rate(&mut self, rate:u64){
@@ -63,6 +59,10 @@ impl Cadence{
       true => ControlFlow::WaitUntil(self.last + self.wakeup),
       false => ControlFlow::Poll,
     }
+  }
+
+  pub fn active(&self) -> bool{
+    self.rate > 0
   }
 }
 
