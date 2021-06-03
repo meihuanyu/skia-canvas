@@ -18,7 +18,7 @@ pub enum CanvasEvent{
   Page(Page),
   Title(String),
   FrameRate(u64),
-  // Fullscreen(bool),
+  Fullscreen(bool),
   Visible(bool),
   Cursor(Option<CursorIcon>),
   Position(LogicalPosition<i32>),
@@ -58,6 +58,10 @@ impl Sieve{
       mouse_point: LogicalPosition::<i32>{x:0, y:0},
       mouse_button: None,
     }
+  }
+  pub fn go_fullscreen(&mut self, is_full:bool){
+    self.queue.push(UiEvent::Fullscreen(is_full));
+    self.key_repeats.clear(); // keyups don't get delivered during the transition apparently?
   }
 
   pub fn is_empty(&self) -> bool{

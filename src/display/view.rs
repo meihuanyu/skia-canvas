@@ -8,7 +8,7 @@ use skia_safe::gpu::{BackendRenderTarget, SurfaceOrigin, DirectContext};
 use skia_safe::{Rect, Color, ColorType, Surface, Picture};
 
 use glutin::dpi::{LogicalSize, PhysicalSize, LogicalPosition};
-use glutin::event_loop::{EventLoop};
+use glutin::event_loop::{EventLoop, EventLoopProxy};
 use glutin::window::{WindowBuilder, Fullscreen};
 use glutin::event::{Event, WindowEvent};
 use glutin::GlProfile;
@@ -32,6 +32,7 @@ pub struct View{
   needs_redraw: bool,
   backdrop: Color,
   js_events:Receiver<CanvasEvent>,
+  ui_events: EventLoopProxy<CanvasEvent>,
 }
 
 impl View{
@@ -87,6 +88,7 @@ impl View{
       gl: RefCell::new(gl),
       needs_redraw: true,
       backdrop,
+      ui_events: runloop.create_proxy(),
       js_events,
     }
   }
@@ -164,13 +166,22 @@ impl View{
     let mut window = self.context.window();
     let dpr = window.scale_factor() as f64;
 
-    // for now, listen to the channel for Resized WindowEvents repackaged by the Window
-    // (eventually, the channel will be the only way to hand them off)
+    // For now, listen to the channel for Resized WindowEvents repackaged by the Window
+    // and Fullscreen changes made in a js event handler. Eventually all events will come
+    // from the channel rather than handle_event being invoked on the main thread...
     for e in self.js_events.try_iter(){
       match e {
         CanvasEvent::Resized(physical_size) => {
           self.resize(physical_size);
           self.redraw();
+          let is_fullscreen = window.fullscreen().is_some();
+          self.ui_events.send_event(CanvasEvent::Fullscreen(is_fullscreen)).ok();
+        },
+        CanvasEvent::Fullscreen(to_fullscreen) => {
+          match to_fullscreen{
+            true => window.set_fullscreen( Some(Fullscreen::Borderless(None)) ),
+            false => window.set_fullscreen( None )
+          }
         },
         _ => {}
       }
@@ -181,12 +192,6 @@ impl View{
       CanvasEvent::Title(title) => window.set_title(title),
       CanvasEvent::Size(size) => window.set_inner_size(*size),
       CanvasEvent::Position(position) => window.set_outer_position(*position),
-
-      CanvasEvent::Resized(physical_size) => {
-        // println!("got re-resized to {:?}", physical_size);
-        self.resize(*physical_size);
-        self.redraw();
-      },
 
       CanvasEvent::Page(page) => {
         if page.ident != self.ident{
@@ -214,10 +219,8 @@ impl View{
         // }
       }
 
-
       // Heartbeat,
       // FrameRate(u64),
-      // Fullscreen(bool),
       // Close,
 
       _ => {}

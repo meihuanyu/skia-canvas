@@ -102,9 +102,8 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
       Event::UserEvent(canvas_event) => {
         match canvas_event{
           CanvasEvent::Close => *control_flow = ControlFlow::Exit,
-          CanvasEvent::FrameRate(fps) => {
-            cadence.set_frame_rate(fps);
-          }
+          CanvasEvent::FrameRate(fps) => cadence.set_frame_rate(fps),
+          CanvasEvent::Fullscreen(is_full) => window.went_fullscreen(is_full),
           _ => view.handle_event(&canvas_event)
         }
       }
@@ -117,7 +116,6 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
       }
 
       Event::MainEventsCleared => {
-        // do a dispatch-events round-trip
         *control_flow = window.communicate_pending(&mut cx, &dispatch);
       }
 

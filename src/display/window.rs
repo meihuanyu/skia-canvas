@@ -32,12 +32,12 @@ pub struct Window{
   cursor: Option<CursorIcon>,
   dpr: f64,
 
+  fullscreen: bool,
   visible: bool,
   animated: bool,
   fps: u64,
 
   closed: bool,
-  fullscreen: bool,
   needs_display: bool,
 }
 
@@ -80,6 +80,13 @@ impl Window{
     self.proxy.send_event(CanvasEvent::Render).ok();
   }
 
+  pub fn went_fullscreen(&mut self, is_fullscreen:bool){
+    // should only be triggered when the fullscreen transition is detected in the view (i.e. via a window widget)
+    if is_fullscreen !=self.fullscreen{
+      self.fullscreen = is_fullscreen;
+      self.ui_events.go_fullscreen(is_fullscreen);
+    }
+  }
 
   pub fn handle_event(&mut self, event:&Event<CanvasEvent>){
     if let Event::WindowEvent{event, ..} = event {
@@ -146,7 +153,13 @@ impl Window{
         // 3: fullscreen flag
         if let Ok(is_full) = vals[3].downcast::<JsBoolean, _>(cx){
           let is_full = is_full.value(cx);
-          // self.proxy.send_event(CanvasEvent::Fullscreen(is_full));
+          if is_full != self.fullscreen{
+            self.fullscreen = is_full;
+            if let Some(channel) = &self.js_events{
+              channel.send(CanvasEvent::Fullscreen(is_full)).unwrap();
+            }
+            self.ui_events.go_fullscreen(is_full);
+          }
         }
 
         // 4: fps (or zero to disable animation)
