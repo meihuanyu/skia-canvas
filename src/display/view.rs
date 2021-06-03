@@ -150,62 +150,58 @@ impl View{
     self.context.swap_buffers().unwrap();
   }
 
-  pub fn handle_event(&mut self, event:&Event<CanvasEvent>){
+  pub fn handle_event(&mut self, event:&CanvasEvent){
     let mut window = self.context.window();
     let dpr = window.scale_factor() as f64;
-    match event{
-      Event::WindowEvent{
-        event: WindowEvent::Resized(physical_size), ..
-      } => {
-        self.resize(*physical_size);
-        self.redraw();
       }
 
-      Event::UserEvent(event) => {
-        // println!("event: {:?}", event);
-        match event{
-          CanvasEvent::Visible(visible) => window.set_visible(*visible),
-          CanvasEvent::Title(title) => window.set_title(title),
-          CanvasEvent::Size(size) => window.set_inner_size(*size),
-          CanvasEvent::Position(position) => window.set_outer_position(*position),
+    match event{
+      CanvasEvent::Visible(visible) => window.set_visible(*visible),
+      CanvasEvent::Title(title) => window.set_title(title),
+      CanvasEvent::Size(size) => window.set_inner_size(*size),
+      CanvasEvent::Position(position) => window.set_outer_position(*position),
 
-          CanvasEvent::Page(page) => {
-            if page.ident != self.ident{
-              if let Some(pict) = page.get_picture(){
-                self.pict = pict;
-                self.dims = (page.bounds.width(), page.bounds.height());
-                self.ident = page.ident;
-                self.needs_redraw = true;
-              }
-            }
+      CanvasEvent::Resized(physical_size) => {
+        // println!("got re-resized to {:?}", physical_size);
+        self.resize(*physical_size);
+        self.redraw();
+      },
+
+      CanvasEvent::Page(page) => {
+        if page.ident != self.ident{
+          if let Some(pict) = page.get_picture(){
+            self.pict = pict;
+            self.dims = (page.bounds.width(), page.bounds.height());
+            self.ident = page.ident;
+            self.needs_redraw = true;
           }
-
-          CanvasEvent::Cursor(cursor_icon) => {
-            window.set_cursor_visible(cursor_icon.is_some());
-            if let Some(icon) = cursor_icon{
-              window.set_cursor_icon(*icon);
-            }
-          },
-
-          CanvasEvent::Render => {
-            // if self.needs_redraw{
-              self.redraw();
-              self.needs_redraw = false;
-              self.context.window().request_redraw();
-            // }
-          }
-
-
-          // Heartbeat,
-          // FrameRate(u64),
-          // Fullscreen(bool),
-          // Close,
-
-          _ => {}
         }
       }
 
+      CanvasEvent::Cursor(cursor_icon) => {
+        window.set_cursor_visible(cursor_icon.is_some());
+        if let Some(icon) = cursor_icon{
+          window.set_cursor_icon(*icon);
+        }
+      },
+
+      CanvasEvent::Render => {
+        // if self.needs_redraw{
+          self.redraw();
+          self.needs_redraw = false;
+          self.context.window().request_redraw();
+        // }
+      }
+
+
+      // Heartbeat,
+      // FrameRate(u64),
+      // Fullscreen(bool),
+      // Close,
+
       _ => {}
     }
+
+
   }
 }

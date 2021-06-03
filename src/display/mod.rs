@@ -91,7 +91,6 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
       running = true;
     }
 
-    view.handle_event(&event);
     window.handle_event(&event);
 
     match event {
@@ -101,14 +100,13 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         }
       }
 
-      Event::UserEvent(event) => {
-        match event{
+      Event::UserEvent(canvas_event) => {
+        match canvas_event{
           CanvasEvent::Close => *control_flow = ControlFlow::Exit,
           CanvasEvent::FrameRate(fps) => {
             cadence.set_frame_rate(fps);
           }
-          CanvasEvent::Heartbeat => {}
-          _ => {}
+          _ => view.handle_event(&canvas_event)
         }
       }
 
