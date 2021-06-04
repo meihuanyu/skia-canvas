@@ -45,10 +45,9 @@ impl Cadence{
   }
 
   fn on_startup<F:FnOnce()>(&mut self, init:F){
-    if !self.begun{
-      init();
-      self.begun = true;
-    }
+    if self.begun{ return }
+    self.begun = true;
+    init();
   }
 
   pub fn set_frame_rate(&mut self, rate:u64){
