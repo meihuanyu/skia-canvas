@@ -6,7 +6,7 @@ use std::time::{Instant, Duration};
 use neon::prelude::*;
 use neon::result::Throw;
 use crossbeam::channel::Sender;
-use skia_safe::{Color};
+use skia_safe::{Color, Matrix};
 use glutin::platform::run_return::EventLoopExtRunReturn;
 use glutin::event_loop::{ControlFlow, EventLoop, EventLoopProxy, EventLoopClosed};
 use glutin::event::{Event, WindowEvent};
@@ -85,6 +85,12 @@ impl Window{
     if is_fullscreen !=self.fullscreen{
       self.fullscreen = is_fullscreen;
       self.ui_events.go_fullscreen(is_fullscreen);
+    }
+  }
+
+  pub fn new_transform(&mut self, new_matrix:Option<Matrix>){
+    if let Some(matrix) = new_matrix{
+      self.ui_events.use_transform(matrix);
     }
   }
 

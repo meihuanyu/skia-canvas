@@ -5,7 +5,7 @@ use crossbeam::channel::Receiver;
 
 use skia_safe::gpu::gl::FramebufferInfo;
 use skia_safe::gpu::{BackendRenderTarget, SurfaceOrigin, DirectContext};
-use skia_safe::{Rect, Color, ColorType, Surface, Picture};
+use skia_safe::{Rect, Matrix, Color, ColorType, Surface, Picture};
 
 use glutin::dpi::{LogicalSize, PhysicalSize, LogicalPosition};
 use glutin::event_loop::{EventLoop, EventLoopProxy};
@@ -134,6 +134,15 @@ impl View{
     self.context.window().scale_factor() as f64
   }
 
+  pub fn fitting_matrix(&self) -> Matrix {
+    let physical_size = self.context.window().inner_size();
+    let sf = physical_size.height as f32 / self.dims.1;
+    let indent = (physical_size.width as f32 - self.dims.0 * sf) / 2.0;
+    let mut matrix = Matrix::scale((sf, sf));
+    matrix.set_translate_x(indent);
+    matrix
+  }
+
   pub fn resize(&self, physical_size:PhysicalSize<u32>){
     let (gl, surface) = View::gl_surface(&self.context);
     self.context.resize(physical_size);
@@ -144,15 +153,12 @@ impl View{
   pub fn redraw(&self){
     let mut surface = self.surface.borrow_mut();
     let canvas = surface.canvas();
-
-    let physical_size = self.context.window().inner_size();
-    let sf = physical_size.height as f32 / self.dims.1;
-    let indent = (physical_size.width as f32 - self.dims.0 * sf) / 2.0;
+    let fit = self.fitting_matrix();
     let clip = Rect::from_size(self.dims);
 
     canvas.clear(self.backdrop);
     canvas.save();
-    canvas.translate((indent, 0.0)).scale((sf, sf));
+    canvas.set_matrix(&fit.into());
     canvas.clip_rect(clip, None, None);
     canvas.draw_picture(&self.pict, None, None);
     canvas.restore();
@@ -174,6 +180,8 @@ impl View{
         CanvasEvent::Resized(physical_size) => {
           self.resize(physical_size);
           self.redraw();
+          let matrix = self.fitting_matrix().invert();
+          self.ui_events.send_event(CanvasEvent::Transform(matrix)).ok();
           let is_fullscreen = window.fullscreen().is_some();
           self.ui_events.send_event(CanvasEvent::Fullscreen(is_fullscreen)).ok();
         },
@@ -200,6 +208,9 @@ impl View{
             self.dims = (page.bounds.width(), page.bounds.height());
             self.ident = page.ident;
             self.needs_redraw = true;
+
+            let matrix = self.fitting_matrix().invert();
+            self.ui_events.send_event(CanvasEvent::Transform(matrix)).ok();
           }
         }
       }

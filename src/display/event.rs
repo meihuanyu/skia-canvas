@@ -4,6 +4,7 @@
 #![allow(dead_code)]
 use std::collections::HashMap;
 use neon::prelude::*;
+use skia_safe::{Matrix, Point};
 use glutin::window::CursorIcon;
 use glutin::dpi::{LogicalSize, LogicalPosition, PhysicalSize};
 use glutin::event::{KeyboardInput, VirtualKeyCode, WindowEvent, ModifiersState,
@@ -24,6 +25,7 @@ pub enum CanvasEvent{
   Position(LogicalPosition<i32>),
   Size(LogicalSize<u32>),
   Resized(PhysicalSize<u32>),
+  Transform(Option<Matrix>),
   Heartbeat,
   Render,
   Close,
@@ -47,6 +49,7 @@ pub struct Sieve{
   key_repeats: HashMap<VirtualKeyCode, i32>,
   mouse_point: LogicalPosition::<i32>,
   mouse_button: Option<u16>,
+  mouse_transform: Matrix,
 }
 
 impl Sieve{
@@ -57,8 +60,14 @@ impl Sieve{
       key_repeats: HashMap::new(),
       mouse_point: LogicalPosition::<i32>{x:0, y:0},
       mouse_button: None,
+      mouse_transform: Matrix::new_identity(),
     }
   }
+
+  pub fn use_transform(&mut self, matrix:Matrix){
+    self.mouse_transform = matrix;
+  }
+
   pub fn go_fullscreen(&mut self, is_full:bool){
     self.queue.push(UiEvent::Fullscreen(is_full));
     self.key_repeats.clear(); // keyups don't get delivered during the transition apparently?
@@ -99,7 +108,8 @@ impl Sieve{
       }
 
       WindowEvent::CursorMoved{position, ..} => {
-        self.mouse_point = LogicalPosition::from_physical(*position, dpr);
+        let Point{x, y} = self.mouse_transform.map_point((position.x as f32, position.y as f32));
+        self.mouse_point = LogicalPosition::new(x as i32, y as i32);
 
         let mouse_event = "mousemove".to_string();
         self.queue.push(UiEvent::Mouse(mouse_event));

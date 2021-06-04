@@ -104,6 +104,7 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
           CanvasEvent::Close => *control_flow = ControlFlow::Exit,
           CanvasEvent::FrameRate(fps) => cadence.set_frame_rate(fps),
           CanvasEvent::Fullscreen(is_full) => window.went_fullscreen(is_full),
+          CanvasEvent::Transform(matrix) => window.new_transform(matrix),
           _ => view.handle_event(&canvas_event)
         }
       }
