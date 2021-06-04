@@ -29,6 +29,7 @@ pub struct Cadence{
   last: Instant,
   wakeup: Duration,
   render: Duration,
+  begun: bool,
 }
 
 impl Cadence{
@@ -39,6 +40,14 @@ impl Cadence{
       last: Instant::now(),
       render: Duration::from_nanos(1_000_000_000/rate),
       wakeup: Duration::from_nanos(1_000_000_000/rate * 9/10),
+      begun: false,
+    }
+  }
+
+  fn on_startup<F:FnOnce()>(&mut self, init:F){
+    if !self.begun{
+      init();
+      self.begun = true;
     }
   }
 
@@ -81,15 +90,13 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let mut window = Window::new(&runloop, width, height);
   let mut view = window.new_view(&runloop, context, matte);
   let mut cadence = Cadence::new();
-  let mut running = false;
 
   runloop.run_return(|event, _, control_flow| {
 
-    if !running{
+    cadence.on_startup(||
       // do an initial roundtrip to sync up the Window object's state attrs
-      *control_flow = window.communicate(&mut cx, &dispatch);
-      running = true;
-    }
+      *control_flow = window.communicate(&mut cx, &dispatch)
+    );
 
     window.handle_event(&event);
 
