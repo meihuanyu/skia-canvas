@@ -35,9 +35,6 @@ pub struct Window{
   visible: bool,
   animated: bool,
   fps: u64,
-
-  closed: bool,
-  needs_display: bool,
 }
 
 
@@ -57,10 +54,8 @@ impl Window{
       fps: 0,
 
       visible:false,
-      closed: false,
       animated: false,
       fullscreen: false,
-      needs_display:false,
     }
   }
 
