@@ -229,13 +229,16 @@ impl View{
       CanvasEvent::Page(page) => {
         if page.ident != self.ident{
           if let Some(pict) = page.get_picture(){
-            self.pict = pict;
+            let old_dims = self.dims;
             self.dims = (page.bounds.width(), page.bounds.height());
             self.ident = page.ident;
+            self.pict = pict;
             self.needs_redraw = true;
 
-            let matrix = self.fitting_matrix().invert();
-            self.ui_events.send_event(CanvasEvent::Transform(matrix)).ok();
+            if old_dims != self.dims{
+              let matrix = self.fitting_matrix().invert();
+              self.ui_events.send_event(CanvasEvent::Transform(matrix)).ok();
+            }
           }
         }
       }
