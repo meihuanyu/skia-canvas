@@ -192,15 +192,11 @@ impl View{
     self.context.swap_buffers().unwrap();
   }
 
-  pub fn handle_event(&mut self, event:&CanvasEvent){
+  pub fn handle_js_events(&mut self){
     let mut window = self.context.window();
-    let dpr = window.scale_factor() as f64;
 
-    // For now, listen to the channel for Resized WindowEvents repackaged by the Window
-    // and Fullscreen changes made in a js event handler. Eventually all events will come
-    // from the channel rather than handle_event being invoked on the main thread...
-    for e in self.js_events.try_iter(){
-      match e {
+    for event in self.js_events.try_iter(){
+      match event {
         CanvasEvent::Resized(physical_size) => {
           self.resize(physical_size);
           self.redraw();
@@ -209,62 +205,59 @@ impl View{
           let in_fullscreen = window.fullscreen().is_some();
           self.ui_events.send_event(CanvasEvent::InFullscreen(in_fullscreen)).ok();
         },
+
         CanvasEvent::Fullscreen(to_fullscreen) => {
           match to_fullscreen{
             true => window.set_fullscreen( Some(Fullscreen::Borderless(None)) ),
             false => window.set_fullscreen( None )
           }
         },
-        _ => {}
-      }
-    }
 
-    match event{
-      CanvasEvent::Visible(visible) => window.set_visible(*visible),
-      CanvasEvent::Title(title) => window.set_title(title),
-      CanvasEvent::Size(size) => window.set_inner_size(*size),
-      CanvasEvent::Position(position) => window.set_outer_position(*position),
-      CanvasEvent::Fit(mode) => self.fit = *mode,
+        CanvasEvent::Visible(visible) => window.set_visible(visible),
+        CanvasEvent::Title(title) => window.set_title(&title),
+        CanvasEvent::Size(size) => window.set_inner_size(size),
+        CanvasEvent::Position(position) => window.set_outer_position(position),
+        CanvasEvent::Fit(mode) => self.fit = mode,
 
-      CanvasEvent::Page(page) => {
-        if page.ident != self.ident{
-          if let Some(pict) = page.get_picture(){
-            let old_dims = self.dims;
-            self.dims = (page.bounds.width(), page.bounds.height());
-            self.ident = page.ident;
-            self.pict = pict;
-            self.needs_redraw = true;
+        CanvasEvent::Page(page) => {
+          if page.ident != self.ident{
+            if let Some(pict) = page.get_picture(){
+              let old_dims = self.dims;
+              self.dims = (page.bounds.width(), page.bounds.height());
+              self.ident = page.ident;
+              self.pict = pict;
+              self.needs_redraw = true;
 
-            if old_dims != self.dims{
-              let matrix = self.fitting_matrix().invert();
-              self.ui_events.send_event(CanvasEvent::Transform(matrix)).ok();
+              if old_dims != self.dims{
+                let matrix = self.fitting_matrix().invert();
+                self.ui_events.send_event(CanvasEvent::Transform(matrix)).ok();
+              }
             }
           }
         }
-      }
 
-      CanvasEvent::Cursor(cursor_icon) => {
-        window.set_cursor_visible(cursor_icon.is_some());
-        if let Some(icon) = cursor_icon{
-          window.set_cursor_icon(*icon);
+        CanvasEvent::Cursor(cursor_icon) => {
+          window.set_cursor_visible(cursor_icon.is_some());
+          if let Some(icon) = cursor_icon{
+            window.set_cursor_icon(icon);
+          }
+        },
+
+        CanvasEvent::Render => {
+            self.redraw();
+            self.needs_redraw = false;
+            self.context.window().request_redraw();
         }
-      },
 
-      CanvasEvent::Render => {
-        // if self.needs_redraw{
-          self.redraw();
-          self.needs_redraw = false;
-          self.context.window().request_redraw();
-        // }
+        // Heartbeat,
+        // FrameRate(u64),
+        // Close,
+
+        _ => {}
+
+
       }
-
-      // Heartbeat,
-      // FrameRate(u64),
-      // Close,
-
-      _ => {}
     }
-
 
   }
 }

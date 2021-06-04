@@ -111,7 +111,7 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
           CanvasEvent::FrameRate(fps) => cadence.set_frame_rate(fps),
           CanvasEvent::InFullscreen(to_full) => window.went_fullscreen(to_full),
           CanvasEvent::Transform(matrix) => window.new_transform(matrix),
-          _ => view.handle_event(&canvas_event)
+          _ => window.send_js_event(canvas_event)
         }
       }
 
@@ -123,6 +123,7 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
       }
 
       Event::MainEventsCleared => {
+        view.handle_js_events();
         *control_flow = window.communicate_pending(&mut cx, &dispatch);
       }
 
