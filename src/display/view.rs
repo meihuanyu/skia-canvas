@@ -206,8 +206,8 @@ impl View{
           self.redraw();
           let matrix = self.fitting_matrix().invert();
           self.ui_events.send_event(CanvasEvent::Transform(matrix)).ok();
-          let is_fullscreen = window.fullscreen().is_some();
-          self.ui_events.send_event(CanvasEvent::Fullscreen(is_fullscreen)).ok();
+          let in_fullscreen = window.fullscreen().is_some();
+          self.ui_events.send_event(CanvasEvent::InFullscreen(in_fullscreen)).ok();
         },
         CanvasEvent::Fullscreen(to_fullscreen) => {
           match to_fullscreen{

@@ -21,6 +21,7 @@ pub enum CanvasEvent{
   Title(String),
   FrameRate(u64),
   Fullscreen(bool),
+  InFullscreen(bool),
   Visible(bool),
   Cursor(Option<CursorIcon>),
   Fit(Option<Fit>),
