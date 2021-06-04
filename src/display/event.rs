@@ -13,6 +13,7 @@ use glutin::event::{KeyboardInput, VirtualKeyCode, WindowEvent, ModifiersState,
 use crate::utils::{from_key_code, to_cursor_icon};
 use crate::context::BoxedContext2D;
 use crate::canvas::Page;
+use super::Fit;
 
 #[derive(Debug)]
 pub enum CanvasEvent{
@@ -22,6 +23,7 @@ pub enum CanvasEvent{
   Fullscreen(bool),
   Visible(bool),
   Cursor(Option<CursorIcon>),
+  Fit(Option<Fit>),
   Position(LogicalPosition<i32>),
   Size(LogicalSize<u32>),
   Resized(PhysicalSize<u32>),

@@ -18,15 +18,22 @@ use crate::context::{BoxedContext2D};
 use crate::utils::to_cursor_icon;
 use super::CanvasEvent;
 
-
 type WindowedContext = glutin::ContextWrapper<glutin::PossiblyCurrent, glutin::window::Window>;
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum Fit{
+  Contain{x:bool, y:bool},
+  Cover,
+  Fill,
+  ScaleDown
+}
 
 pub struct View{
   context: WindowedContext,
   ident: (usize, usize),
   pict: Picture,
   dims: (f32, f32),
-  title: String,
+  fit: Option<Fit>,
   surface: RefCell<Surface>,
   gl: RefCell<DirectContext>,
   needs_redraw: bool,
@@ -81,9 +88,9 @@ impl View{
     View{
       context,
       ident: ctx.ident(),
-      title: "".to_string(),
       pict: ctx.get_picture(None).unwrap(),
       dims: (ctx.bounds.width(), ctx.bounds.height()),
+      fit: Some(Fit::Contain{x:false, y:true}),
       surface: RefCell::new(surface),
       gl: RefCell::new(gl),
       needs_redraw: true,
@@ -136,10 +143,27 @@ impl View{
 
   pub fn fitting_matrix(&self) -> Matrix {
     let physical_size = self.context.window().inner_size();
-    let sf = physical_size.height as f32 / self.dims.1;
-    let indent = (physical_size.width as f32 - self.dims.0 * sf) / 2.0;
-    let mut matrix = Matrix::scale((sf, sf));
-    matrix.set_translate_x(indent);
+    let fit_x = physical_size.width as f32 / self.dims.0;
+    let fit_y = physical_size.height as f32 / self.dims.1;
+    let dpr = self.dpr() as f32;
+
+    let sf = match self.fit{
+      Some(Fit::Cover) => fit_x.max(fit_y),
+      Some(Fit::ScaleDown) => fit_x.min(fit_y).min(dpr),
+      Some(Fit::Contain{x:true, y:true}) => fit_x.min(fit_y),
+      Some(Fit::Contain{x:true, ..}) => fit_x,
+      Some(Fit::Contain{y:true, ..}) => fit_y,
+      _ => dpr
+    };
+
+    let (x_scale, y_scale) = match self.fit{
+      Some(Fit::Fill) => (fit_x, fit_y),
+      _ => (sf, sf)
+    };
+
+    let mut matrix = Matrix::scale((x_scale, y_scale));
+    matrix.set_translate_x((physical_size.width as f32 - self.dims.0 * x_scale) / 2.0);
+    matrix.set_translate_y((physical_size.height as f32 - self.dims.1 * y_scale) / 2.0);
     matrix
   }
 
@@ -200,6 +224,7 @@ impl View{
       CanvasEvent::Title(title) => window.set_title(title),
       CanvasEvent::Size(size) => window.set_inner_size(*size),
       CanvasEvent::Position(position) => window.set_outer_position(*position),
+      CanvasEvent::Fit(mode) => self.fit = *mode,
 
       CanvasEvent::Page(page) => {
         if page.ident != self.ident{

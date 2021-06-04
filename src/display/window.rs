@@ -13,12 +13,10 @@ use glutin::event::{Event, WindowEvent};
 use glutin::dpi::{LogicalSize, PhysicalSize, LogicalPosition};
 use glutin::window::CursorIcon;
 
-use crate::utils::to_cursor_icon;
 use crate::canvas::Page;
 use crate::context::BoxedContext2D;
-use crate::utils::{argv, color_arg, float_arg};
-use super::{CanvasEvent};
-use super::view::View;
+use crate::utils::{argv, color_arg, float_arg, to_cursor_icon, to_canvas_fit};
+use super::{CanvasEvent, View, Fit};
 use super::event;
 
 pub struct Window{
@@ -30,6 +28,7 @@ pub struct Window{
 
   title: String,
   cursor: Option<CursorIcon>,
+  fit: Option<Fit>,
   dpr: f64,
 
   fullscreen: bool,
@@ -53,6 +52,7 @@ impl Window{
 
       title: "".to_string(),
       cursor: Some(CursorIcon::Default),
+      fit: Some(Fit::Contain{x:false, y:true}),
       dpr: 1.0,
       fps: 0,
 
@@ -203,22 +203,29 @@ impl Window{
         if let Ok(cursor_style) = vals[9].downcast::<JsString, _>(cx){
           let cursor_style = cursor_style.value(cx);
           let cursor_icon = to_cursor_icon(&cursor_style);
-          if cursor_icon != self.cursor{
+          if cursor_icon != self.cursor && cursor_icon.is_some() || cursor_style == "none"{
             self.cursor = cursor_icon;
-            if cursor_icon.is_some() || cursor_style == "none"{
-              self.proxy.send_event(CanvasEvent::Cursor(cursor_icon))?
-            }
+            self.proxy.send_event(CanvasEvent::Cursor(cursor_icon))?
           }
         }
 
-        // 10: visible flag
-        if let Ok(is_visible) = vals[10].downcast::<JsBoolean, _>(cx){
+        // 10: fit
+        if let Ok(fit_style) = vals[10].downcast::<JsString, _>(cx){
+          let fit_style = fit_style.value(cx);
+          let fit_mode = to_canvas_fit(&fit_style);
+          if fit_mode != self.fit && fit_mode.is_some() || fit_style == "none"{
+            self.fit = fit_mode;
+            self.proxy.send_event(CanvasEvent::Fit(fit_mode))?
+          }
+        }
+
+        // 11: visible flag
+        if let Ok(is_visible) = vals[11].downcast::<JsBoolean, _>(cx){
           let is_visible = is_visible.value(cx);
           if is_visible != self.visible{
             self.visible = is_visible;
             self.proxy.send_event(CanvasEvent::Visible(is_visible))?
           }
-
         }
 
       }

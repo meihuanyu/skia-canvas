@@ -20,8 +20,9 @@ mod window;
 mod event;
 mod view;
 
-use window::Window;
-use event::CanvasEvent;
+pub use window::Window;
+pub use event::CanvasEvent;
+pub use view::{View, Fit};
 
 pub struct Cadence{
   rate: u64,

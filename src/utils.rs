@@ -919,3 +919,17 @@ pub fn to_cursor_icon(cursor_name:&str) -> Option<CursorIcon> {
   };
   Some(cursor)
 }
+
+use crate::display::Fit;
+pub fn to_canvas_fit(fit_name:&str) -> Option<Fit> {
+  let fit = match fit_name.to_lowercase().as_str() {
+    "contain" => Fit::Contain{x:true, y:true},
+    "contain-x" => Fit::Contain{x:true, y:false},
+    "contain-y" => Fit::Contain{x:false, y:true},
+    "cover" => Fit::Cover,
+    "fill" => Fit::Fill,
+    "scale-down" => Fit::ScaleDown,
+    _ => return None
+  };
+  Some(fit)
+}
