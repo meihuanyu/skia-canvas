@@ -98,8 +98,6 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
       *control_flow = window.communicate(&mut cx, &dispatch)
     );
 
-    window.handle_event(&event);
-
     match event {
       Event::NewEvents(..) => {
         if cadence.active() {
@@ -120,7 +118,7 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
       Event::WindowEvent{event, ..} => {
         match event {
           WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-          _ => {}
+          _ => window.handle_ui_event(&event)
         }
       }
 

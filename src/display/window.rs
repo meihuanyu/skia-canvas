@@ -89,22 +89,23 @@ impl Window{
     }
   }
 
-  pub fn handle_event(&mut self, event:&Event<CanvasEvent>){
-    if let Event::WindowEvent{event, ..} = event {
-      if let WindowEvent::Resized(physical_size) = event {
-        self.size = LogicalSize::from_physical(*physical_size, self.dpr);
-        // self.proxy.send_event(CanvasEvent::Resized(*physical_size)).ok();
-        if let Some(channel) = &self.js_events{
-          channel.send(CanvasEvent::Resized(*physical_size)).unwrap();
-        }
-      }
-
-      if let WindowEvent::Moved(physical_pt) = event {
-        self.position = LogicalPosition::from_physical(*physical_pt, self.dpr);
-      }
-
-      self.ui_events.capture(&event, self.dpr)
+  pub fn send_js_event(&self, event:CanvasEvent){
+    if let Some(channel) = &self.js_events{
+      channel.send(event).unwrap();
     }
+  }
+
+  pub fn handle_ui_event(&mut self, event:&WindowEvent){
+    if let WindowEvent::Resized(physical_size) = event {
+      self.size = LogicalSize::from_physical(*physical_size, self.dpr);
+      self.send_js_event(CanvasEvent::Resized(*physical_size));
+    }
+
+    if let WindowEvent::Moved(physical_pt) = event {
+      self.position = LogicalPosition::from_physical(*physical_pt, self.dpr);
+    }
+
+    self.ui_events.capture(&event, self.dpr)
   }
 
   pub fn communicate_pending(&mut self, cx: &mut FunctionContext, callback:&Handle<JsFunction>) -> ControlFlow {
@@ -156,9 +157,7 @@ impl Window{
           let is_full = is_full.value(cx);
           if is_full != self.fullscreen{
             self.fullscreen = is_full;
-            if let Some(channel) = &self.js_events{
-              channel.send(CanvasEvent::Fullscreen(is_full)).unwrap();
-            }
+            self.send_js_event(CanvasEvent::Fullscreen(is_full));
             self.ui_events.go_fullscreen(is_full);
           }
         }
