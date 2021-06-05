@@ -188,7 +188,7 @@ impl View{
     canvas.restore();
 
     let mut gl = self.gl.borrow_mut();
-    gl.flush(None);
+    gl.flush_and_submit();
     self.context.swap_buffers().unwrap();
   }
 
