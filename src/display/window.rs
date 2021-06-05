@@ -108,22 +108,17 @@ impl Window{
     self.ui_events.capture(&event, self.dpr)
   }
 
-  pub fn communicate_pending(&mut self, cx: &mut FunctionContext, callback:&Handle<JsFunction>) -> ControlFlow {
-    match self.ui_events.is_empty(){
-      true => ControlFlow::Poll,
-      false => self.communicate(cx, callback)
-    }
+  pub fn communicate_pending(&mut self, cx: &mut FunctionContext, callback:&Handle<JsFunction>) -> Result<(), String> {
+    if self.ui_events.is_empty(){ Ok(()) }
+    else{ self.communicate(cx, callback) }
   }
 
-  pub fn communicate(&mut self, cx: &mut FunctionContext, callback:&Handle<JsFunction>) -> ControlFlow {
+  pub fn communicate(&mut self, cx: &mut FunctionContext, callback:&Handle<JsFunction>) -> Result<(), String> {
     let changes = self.ui_events.serialized(cx);
     let null = cx.null();
-    if let Ok(response) = callback.call(cx, null, changes){
-      if self.handle_feedback(cx, response).is_ok(){
-        return ControlFlow::Poll
-      }
-    }
-    ControlFlow::Exit
+
+    let response = callback.call(cx, null, changes).map_err(|_|"Error in callback".to_string())?;
+    self.handle_feedback(cx, response).map_err(|_|"Event loop terminated".to_string())
   }
 
   pub fn handle_feedback(&mut self, cx:&mut FunctionContext, feedback:Handle<JsValue>) -> Result<(), EventLoopClosed<CanvasEvent>> {

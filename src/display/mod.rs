@@ -89,13 +89,15 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let mut window = Window::new(&runloop, width, height);
   let mut view = window.new_view(&runloop, context, matte);
   let mut cadence = Cadence::new();
+  let mut halt = false;
 
   runloop.run_return(|event, _, control_flow| {
 
-    cadence.on_startup(||
+    cadence.on_startup(||{
       // do an initial roundtrip to sync up the Window object's state attrs
-      *control_flow = window.communicate(&mut cx, &dispatch)
-    );
+      *control_flow = ControlFlow::Poll;
+      halt = window.communicate(&mut cx, &dispatch).is_err();
+    });
 
     match event {
       Event::NewEvents(..) => {
@@ -106,7 +108,7 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
 
       Event::UserEvent(canvas_event) => {
         match canvas_event{
-          CanvasEvent::Close => *control_flow = ControlFlow::Exit,
+          CanvasEvent::Close => halt = true,
           CanvasEvent::FrameRate(fps) => cadence.set_frame_rate(fps),
           CanvasEvent::InFullscreen(to_full) => window.went_fullscreen(to_full),
           CanvasEvent::Transform(matrix) => window.new_transform(matrix),
@@ -116,18 +118,18 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
 
       Event::WindowEvent{event, ..} => {
         match event {
-          WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+          WindowEvent::CloseRequested => halt = true,
           _ => window.handle_ui_event(&event)
         }
       }
 
       Event::MainEventsCleared => {
         view.handle_js_events();
-        *control_flow = window.communicate_pending(&mut cx, &dispatch);
+        halt = window.communicate_pending(&mut cx, &dispatch).is_err();
       }
 
       Event::RedrawRequested(..) => {
-        *control_flow = window.communicate(&mut cx, &animate);
+        halt = window.communicate(&mut cx, &animate).is_err()
       }
 
       Event::RedrawEventsCleared => {}
@@ -135,6 +137,7 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
       _ => {}
     }
 
+    if halt{ *control_flow = ControlFlow::Exit; }
   });
 
   Ok(cx.undefined())
