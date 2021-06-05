@@ -32,11 +32,11 @@ pub struct View{
   context: WindowedContext,
   ident: (usize, usize),
   pict: Picture,
+  backdrop: Color,
   dims: (f32, f32),
   fit: Option<Fit>,
   surface: RefCell<Surface>,
   gl: RefCell<DirectContext>,
-  backdrop: Color,
   js_events:Receiver<CanvasEvent>,
   ui_events: EventLoopProxy<CanvasEvent>,
 }
@@ -86,13 +86,13 @@ impl View{
     let (gl, surface) = View::gl_surface(&context);
     View{
       context,
+      backdrop,
       ident: ctx.ident(),
       pict: ctx.get_picture(None).unwrap(),
       dims: (ctx.bounds.width(), ctx.bounds.height()),
       fit: Some(Fit::Contain{x:false, y:true}),
       surface: RefCell::new(surface),
       gl: RefCell::new(gl),
-      backdrop,
       ui_events: runloop.create_proxy(),
       js_events,
     }
@@ -195,6 +195,12 @@ impl View{
 
     for event in self.js_events.try_iter(){
       match event {
+        CanvasEvent::Visible(visible) => window.set_visible(visible),
+        CanvasEvent::Title(title) => window.set_title(&title),
+        CanvasEvent::Size(size) => window.set_inner_size(size),
+        CanvasEvent::Position(position) => window.set_outer_position(position),
+        CanvasEvent::Fit(mode) => self.fit = mode,
+
         CanvasEvent::Resized(physical_size) => {
           self.resize(physical_size);
           self.redraw();
@@ -210,12 +216,6 @@ impl View{
             false => window.set_fullscreen( None )
           }
         },
-
-        CanvasEvent::Visible(visible) => window.set_visible(visible),
-        CanvasEvent::Title(title) => window.set_title(&title),
-        CanvasEvent::Size(size) => window.set_inner_size(size),
-        CanvasEvent::Position(position) => window.set_outer_position(position),
-        CanvasEvent::Fit(mode) => self.fit = mode,
 
         CanvasEvent::Page(page) => {
           if page.ident != self.ident{
@@ -245,15 +245,12 @@ impl View{
             self.context.window().request_redraw();
         }
 
-        // Heartbeat,
-        // FrameRate(u64),
-        // Close,
-
-        _ => {}
-
-
+        _ => {
+          // Heartbeat,
+          // FrameRate(u64),
+          // Close,
+        }
       }
     }
-
   }
 }
