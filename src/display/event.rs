@@ -24,6 +24,7 @@ pub enum CanvasEvent{
   InFullscreen(bool),
   Visible(bool),
   Cursor(Option<CursorIcon>),
+  CursorVisible(bool),
   Fit(Option<Fit>),
   Position(LogicalPosition<i32>),
   Size(LogicalSize<u32>),

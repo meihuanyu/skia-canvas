@@ -91,6 +91,12 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let mut cadence = Cadence::new();
   let mut halt = false;
 
+  let proxy = runloop.create_proxy();
+  std::thread::spawn(move || loop {
+    std::thread::sleep(Duration::from_millis(500));
+    if proxy.send_event(CanvasEvent::Heartbeat).is_err(){ break }
+  });
+
   runloop.run_return(|event, _, control_flow| {
 
     cadence.on_startup(||{
@@ -109,6 +115,7 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
       Event::UserEvent(canvas_event) => {
         match canvas_event{
           CanvasEvent::Close => halt = true,
+          CanvasEvent::Heartbeat => window.autohide_cursor(),
           CanvasEvent::FrameRate(fps) => cadence.set_frame_rate(fps),
           CanvasEvent::InFullscreen(to_full) => window.went_fullscreen(to_full),
           CanvasEvent::Transform(matrix) => window.new_transform(matrix),

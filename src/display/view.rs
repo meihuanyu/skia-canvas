@@ -195,11 +195,12 @@ impl View{
 
     for event in self.js_events.try_iter(){
       match event {
-        CanvasEvent::Visible(visible) => window.set_visible(visible),
         CanvasEvent::Title(title) => window.set_title(&title),
         CanvasEvent::Size(size) => window.set_inner_size(size),
         CanvasEvent::Position(position) => window.set_outer_position(position),
         CanvasEvent::Fit(mode) => self.fit = mode,
+        CanvasEvent::Visible(visible) => window.set_visible(visible),
+        CanvasEvent::CursorVisible(visible) => window.set_cursor_visible(visible),
 
         CanvasEvent::Resized(physical_size) => {
           self.resize(physical_size);

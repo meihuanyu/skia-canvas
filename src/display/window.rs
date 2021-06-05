@@ -28,6 +28,7 @@ pub struct Window{
 
   title: String,
   cursor: Option<CursorIcon>,
+  autohide: Instant,
   fit: Option<Fit>,
   dpr: f64,
 
@@ -49,6 +50,7 @@ impl Window{
 
       title: "".to_string(),
       cursor: Some(CursorIcon::Default),
+      autohide: Instant::now(),
       fit: Some(Fit::Contain{x:false, y:true}),
       dpr: 1.0,
       fps: 0,
@@ -83,6 +85,21 @@ impl Window{
     }
   }
 
+  pub fn unhide_cursor(&mut self){
+    let next_tick = Instant::now() + Duration::from_millis(1500);
+    if self.fullscreen && self.animated && self.autohide > next_tick{
+      self.autohide = next_tick;
+      self.send_js_event(CanvasEvent::CursorVisible(true));
+    }
+  }
+
+  pub fn autohide_cursor(&mut self){
+    if self.fullscreen && self.animated && self.autohide < Instant::now(){
+      self.autohide = Instant::now() + Duration::from_secs(31_536_000);
+      self.send_js_event(CanvasEvent::CursorVisible(false));
+    }
+  }
+
   pub fn new_transform(&mut self, new_matrix:Option<Matrix>){
     if let Some(matrix) = new_matrix{
       self.ui_events.use_transform(matrix);
@@ -104,6 +121,9 @@ impl Window{
     if let WindowEvent::Moved(physical_pt) = event {
       self.position = LogicalPosition::from_physical(*physical_pt, self.dpr);
     }
+
+    if let WindowEvent::ModifiersChanged{..} | WindowEvent::CursorMoved{..} |
+           WindowEvent::KeyboardInput{..} | WindowEvent::MouseInput{..} = event { self.unhide_cursor(); }
 
     self.ui_events.capture(&event, self.dpr)
   }
