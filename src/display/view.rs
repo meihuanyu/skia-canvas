@@ -36,7 +36,6 @@ pub struct View{
   fit: Option<Fit>,
   surface: RefCell<Surface>,
   gl: RefCell<DirectContext>,
-  needs_redraw: bool,
   backdrop: Color,
   js_events:Receiver<CanvasEvent>,
   ui_events: EventLoopProxy<CanvasEvent>,
@@ -93,7 +92,6 @@ impl View{
       fit: Some(Fit::Contain{x:false, y:true}),
       surface: RefCell::new(surface),
       gl: RefCell::new(gl),
-      needs_redraw: true,
       backdrop,
       ui_events: runloop.create_proxy(),
       js_events,
@@ -226,7 +224,6 @@ impl View{
               self.dims = (page.bounds.width(), page.bounds.height());
               self.ident = page.ident;
               self.pict = pict;
-              self.needs_redraw = true;
 
               if old_dims != self.dims{
                 let matrix = self.fitting_matrix().invert();
@@ -245,7 +242,6 @@ impl View{
 
         CanvasEvent::Render => {
             self.redraw();
-            self.needs_redraw = false;
             self.context.window().request_redraw();
         }
 
