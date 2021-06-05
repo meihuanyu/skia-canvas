@@ -34,12 +34,11 @@ pub struct Cadence{
 
 impl Cadence{
   pub fn new() -> Self {
-    let rate = 60;
     Cadence{
-      rate,
+      rate: 0,
       last: Instant::now(),
-      render: Duration::from_nanos(1_000_000_000/rate),
-      wakeup: Duration::from_nanos(1_000_000_000/rate * 9/10),
+      render: Duration::new(0, 0),
+      wakeup: Duration::new(0, 0),
       begun: false,
     }
   }
@@ -59,6 +58,10 @@ impl Cadence{
   }
 
   pub fn on_next_frame<F:Fn()>(&mut self, draw:F) -> ControlFlow{
+    if self.rate == 0{
+      return ControlFlow::Wait;
+    }
+
     if self.last.elapsed() >= self.render{
       self.last = Instant::now();
       draw();
@@ -101,15 +104,17 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
 
     cadence.on_startup(||{
       // do an initial roundtrip to sync up the Window object's state attrs
-      *control_flow = ControlFlow::Poll;
       halt = window.communicate(&mut cx, &dispatch).is_err();
+      *control_flow = ControlFlow::Wait;
     });
 
     match event {
       Event::NewEvents(..) => {
-        if cadence.active() {
-          *control_flow = cadence.on_next_frame(|| window.render() );
-        }
+        *control_flow = cadence.on_next_frame(|| window.render() );
+      }
+
+      Event::WindowEvent{event, ..} => {
+        window.handle_ui_event(&event);
       }
 
       Event::UserEvent(canvas_event) => {
@@ -123,23 +128,16 @@ pub fn begin(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         }
       }
 
-      Event::WindowEvent{event, ..} => {
-        match event {
-          WindowEvent::CloseRequested => halt = true,
-          _ => window.handle_ui_event(&event)
-        }
-      }
-
       Event::MainEventsCleared => {
         view.handle_js_events();
         halt = window.communicate_pending(&mut cx, &dispatch).is_err();
       }
 
       Event::RedrawRequested(..) => {
-        halt = window.communicate(&mut cx, &animate).is_err()
+        if cadence.active(){
+          halt = window.communicate(&mut cx, &animate).is_err()
+        }
       }
-
-      Event::RedrawEventsCleared => {}
 
       _ => {}
     }

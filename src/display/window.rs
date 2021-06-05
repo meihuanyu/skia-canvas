@@ -122,6 +122,10 @@ impl Window{
       self.position = LogicalPosition::from_physical(*physical_pt, self.dpr);
     }
 
+    if let WindowEvent::CloseRequested = event{
+      self.proxy.send_event(CanvasEvent::Close).ok();
+    }
+
     if let WindowEvent::ModifiersChanged{..} | WindowEvent::CursorMoved{..} |
            WindowEvent::KeyboardInput{..} | WindowEvent::MouseInput{..} = event { self.unhide_cursor(); }
 
@@ -182,6 +186,7 @@ impl Window{
           let fps = fps.value(cx) as u64;
           if fps != self.fps{
             self.fps = fps;
+            self.animated = fps > 0;
             self.proxy.send_event(CanvasEvent::FrameRate(fps))?
           }
         }
@@ -240,7 +245,10 @@ impl Window{
       }
     }
 
-    Ok(())
+    match self.animated{
+      true => Ok(()),
+      false => self.proxy.send_event(CanvasEvent::Render)
+    }
   }
 
 }
