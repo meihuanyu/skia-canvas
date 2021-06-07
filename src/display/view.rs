@@ -194,18 +194,18 @@ impl View{
   pub fn handle_js_events(&mut self){
     let mut window = self.context.window();
 
+    let mut needs_redraw = false;
     for event in self.js_events.try_iter(){
       match event {
         CanvasEvent::Title(title) => window.set_title(&title),
         CanvasEvent::Size(size) => window.set_inner_size(size),
         CanvasEvent::Position(position) => window.set_outer_position(position),
-        CanvasEvent::Fit(mode) => self.fit = mode,
         CanvasEvent::Visible(visible) => window.set_visible(visible),
         CanvasEvent::CursorVisible(visible) => window.set_cursor_visible(visible),
 
         CanvasEvent::Resized(physical_size) => {
           self.resize(physical_size);
-          self.redraw();
+          needs_redraw = true;
           let matrix = self.fitting_matrix().invert();
           self.ui_events.send_event(CanvasEvent::Transform(matrix)).ok();
           let in_fullscreen = window.fullscreen().is_some();
@@ -219,6 +219,11 @@ impl View{
           }
         },
 
+        CanvasEvent::Fit(mode) => {
+          needs_redraw = true;
+          self.fit = mode;
+        },
+
         CanvasEvent::Page(page) => {
           if page.ident != self.ident{
             if let Some(pict) = page.get_picture(){
@@ -226,7 +231,7 @@ impl View{
               self.dims = (page.bounds.width(), page.bounds.height());
               self.ident = page.ident;
               self.pict = pict;
-              self.redraw();
+              needs_redraw = true;
 
               if old_dims != self.dims{
                 let matrix = self.fitting_matrix().invert();
@@ -253,6 +258,10 @@ impl View{
           // Close,
         }
       }
+    }
+
+    if needs_redraw{
+      self.redraw();
     }
   }
 }
