@@ -63,7 +63,9 @@ impl Cadence{
     }
 
     if self.last.elapsed() >= self.render{
-      self.last = Instant::now();
+      while self.last < Instant::now() - self.render{
+        self.last += self.render
+      }
       draw();
     }
 

@@ -59,6 +59,7 @@ impl View{
       .with_title("");
 
     let cb = glutin::ContextBuilder::new()
+      .with_vsync(true)
       .with_depth_buffer(0)
       .with_stencil_buffer(8)
       .with_pixel_format(24, 8)
@@ -225,6 +226,7 @@ impl View{
               self.dims = (page.bounds.width(), page.bounds.height());
               self.ident = page.ident;
               self.pict = pict;
+              self.redraw();
 
               if old_dims != self.dims{
                 let matrix = self.fitting_matrix().invert();
@@ -242,7 +244,6 @@ impl View{
         },
 
         CanvasEvent::Render => {
-            self.redraw();
             self.context.window().request_redraw();
         }
 
