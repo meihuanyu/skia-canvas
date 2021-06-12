@@ -23,37 +23,6 @@ In particular, Skia Canvas:
     - use of non-system fonts [loaded](#usefamilyname-fontpaths) from local files
 
 
-## Installation
-
-If you’re running on a supported platform, installation should be as simple as:
-```console
-$ npm install skia-canvas
-```
-
-This will download a pre-compiled library from the project’s most recent [release](https://github.com/samizdatco/skia-canvas/releases). If prebuilt binaries aren’t available for your system you’ll need to compile the portions of this library that directly interface with Skia.
-
-Start by installing:
-
-  1. The [Rust compiler](https://www.rust-lang.org/tools/install) and cargo package manager using [`rustup`](https://rust-lang.github.io/rustup/)
-  2. A C compiler toolchain like LLVM/Clang, GCC, or MSVC
-
-Once these dependencies are present, running `npm run build` will give you a useable library (after a fairly lengthy compilation process).
-
-### Platform Support
-
-The underlying Rust library uses [N-API](https://nodejs.org/api/n-api.html) v6 which allows it to run on Node.js versions:
-  - 10.20+
-  - 12.17+
-  - 14.0, 15.0, and later
-
-There are pre-compiled binaries for:
-
-  - Linux (x86)
-  - macOS (x86 & Apple silicon)
-  - Windows (x86)
-
-
-
 ### Basic Usage
 ```js
 const {Canvas, loadImage} = require('skia-canvas'),
@@ -93,45 +62,84 @@ fs.writeFileSync("pilcrow.png", canvas.png)
 console.log(`<img src="${canvas.toDataURL("png")}">`)
 ```
 
+## Installation
+
+If you’re running on a supported platform, installation should be as simple as:
+```console
+$ npm install skia-canvas
+```
+
+This will download a pre-compiled library from the project’s most recent [release](https://github.com/samizdatco/skia-canvas/releases). 
+
+### Dependencies
+
+Nearly everything you need is statically linked into the library. 
+
+A notable exception is the [Fontconfig](https://www.freedesktop.org/wiki/Software/fontconfig/) library (and its associated [FreeType](https://www.freetype.org) renderer) which must be installed separately if you’re running on Linux.
+
+
+### Platform Support
+
+The underlying Rust library uses [N-API](https://nodejs.org/api/n-api.html) v6 which allows it to run on Node.js versions:
+  - 10.20+
+  - 12.17+
+  - 14.0, 15.0, and later
+
+Pre-compiled binaries are available for:
+
+  - Linux (x86)
+  - macOS (x86 & Apple silicon)
+  - Windows (x86)
+
+
+### Compiling from source
+
+If prebuilt binaries aren’t available for your system you’ll need to compile the portions of this library that directly interface with Skia.
+
+Start by installing:
+
+  1. The [Rust compiler](https://www.rust-lang.org/tools/install) and cargo package manager using [`rustup`](https://rust-lang.github.io/rustup/)
+  2. A C compiler toolchain like LLVM/Clang or MSVC
+  3. Python 2.7 (used by Skia's [build process](https://skia.org/docs/user/build/))
+  4. On Linux: Fontconfig, OpenSSL, X11, and Mesa
+
+[Detailed instructions](https://github.com/rust-skia/rust-skia#building) for setting up these dependencies on different operating systems can be found in the ‘Building’ section of the Rust Skia documentation. Once all the necessary compilers and libraries are present, running `npm run build` will give you a usable library (after a fairly lengthy compilation process).
+
+
+
 # API Documentation
+
+> Documentation for the key classes and their attributes are listed below—properties are printed in **bold** and methods have parentheses attached to the name. The instances where Skia Canvas’s behavior goes beyond the standard are marked by a ⚡ symbol, linking to further details below.
 
 The library exports a number of classes emulating familiar browser objects including:
 
- - [Canvas][Canvas] ([⚡](#canvas))
+ - [Canvas][Canvas] ⧸[⚡](#canvas)
  - [CanvasGradient][CanvasGradient]
  - [CanvasPattern][CanvasPattern]
- - [CanvasRenderingContext2D][CanvasRenderingContext2D] ([⚡](#canvas))
+ - [CanvasRenderingContext2D][CanvasRenderingContext2D] ⧸[⚡](#canvasrenderingcontext2d)
  - [DOMMatrix][DOMMatrix]
  - [Image][Image]
  - [ImageData][ImageData]
- - [Path2D][Path2D] ([⚡](#canvas))
+ - [Path2D][Path2D] ⧸[⚡](#path2d)
 
 In addition, the module contains:
 
 - [loadImage()](#loadimage) a utility function for loading `Image` objects asynchronously
 - [FontLibrary](#fontlibrary) a class allowing you to inspect the system’s installed fonts and load additional ones
 
-Documentation for the key classes and their attributes are listed below—properties are printed in **bold** and methods have parentheses attached to the name. The instances where Skia Canvas’s behavior goes beyond the standard are marked by a ⚡ symbol (see the next section for details).
 
 ## Canvas
 
-The Canvas object is a stand-in for the HTML `<canvas>` element. Rather than calling a DOM method to create a new canvas, you can simply call the `Canvas` constructor with the width and height (in pixels) of the image you’d like to being drawing.
-
-```js
-let defaultCanvas = new Canvas() // without arguments, defaults to 300 × 150 px
-let squareCanvas = new Canvas(512, 512) // creates a 512 px square
-```
-
-Beyond defining image dimensions, the canvas’s role is mainly as a container that holds image data and creates the ‘[context][CanvasRenderingContext2D]’ objects you’ll use modify that image as you do your actual drawing. Once you’re ready to save or display what you’ve drawn, the canvas can [save][saveAs] it to a file, or hand it off to you as a [data buffer][toBuffer] or [string][toDataURL_ext] to process manually.
+The Canvas object is a stand-in for the HTML `<canvas>` element. It defines image dimensions and provides a [rendering context](#canvasrenderingcontext2d) to draw to it. Once you’re ready to save or display what you’ve drawn, the canvas can [save][saveAs] it to a file, or hand it off to you as a [data buffer][toBuffer] or [string][toDataURL_ext] to process manually.
 
 
-| Image Dimensions            | Rendering Contexts            | Output                                             |
-| --                          | --                            | --                                                 |
-| [**width**][canvas_width]   | [**pages** ⚡][canvas_pages]   | [**async** ⚡][canvas_async]                        |
-| [**height**][canvas_height] | [getContext()][getContext]    | [**pdf**, **png**, **svg**, **jpg** ⚡][shorthands] |
-|                             | [newPage() ⚡][newPage] | [saveAs() ⚡][saveAs]                        |
-|                             |                               | [toBuffer() ⚡][toBuffer]                    |
-|                             |                               | [toDataURL()][toDataURL_mdn] [⚡][toDataURL_ext]     |
+| Image Dimensions             | Rendering Contexts            | Output                                           |
+| --                           | --                            | --                                               |
+| [**width**][canvas_width]    | [**pages**][canvas_pages] ⚡  | [**async**][canvas_async]  ⚡                    |
+| [**height**][canvas_height]  | [getContext()][getContext]    | [**pdf**, **png**, **svg**, **jpg**][shorthands] ⚡ |
+|                              | [newPage()][newPage] ⚡       | [saveAs()][saveAs] ⚡                            |
+|                              |                               | [toBuffer()][toBuffer] ⚡                        |
+|                              |                               | [toDataURL()][toDataURL_mdn] [⚡][toDataURL_ext] |
 
 [canvas_width]: https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/width
 [canvas_height]: https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/height
@@ -144,6 +152,17 @@ Beyond defining image dimensions, the canvas’s role is mainly as a container t
 [toDataURL_mdn]: https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/toDataURL
 [toDataURL_ext]: #todataurlformat-page-density-quality-outline
 [shorthands]: #pdf-svg-jpg-and-png
+
+#### Creating new `Canvas` objects
+
+Rather than calling a DOM method to create a new canvas, you can simply call the `Canvas` constructor with the width and height (in pixels) of the image you’d like to being drawing.
+
+```js
+let defaultCanvas = new Canvas() // without arguments, defaults to 300 × 150 px
+let squareCanvas = new Canvas(512, 512) // creates a 512 px square
+```
+
+##### PROPERTIES
 
 #### `.async`
 
@@ -181,6 +200,8 @@ The canvas’s `.pages` attribute is an array of [`CanvasRenderingContext2D`][Ca
 #### `.pdf`, `.svg`, `.jpg`, and `.png`
 
 These properties are syntactic sugar for calling the `toBuffer()` method. Each returns a Node [`Buffer`][Buffer] object with the contents of the canvas in the given format. If more than one page has been added to the canvas, only the most recent one will be included unless you’ve accessed the `.pdf` property in which case the buffer will contain a multi-page PDF.
+
+##### METHODS
 
 #### `newPage(width, height)`
 
@@ -224,34 +245,35 @@ This method accepts the same arguments and behaves similarly to `.toBuffer`. How
 
 ## CanvasRenderingContext2D
 
-Most of your interaction with the canvas will actually be directed toward its ‘rendering context’, a supporting object you can acquire by calling the canvas’s [getContext()](https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/getContext) method.
+Most of your interaction with the canvas will actually be directed toward its ‘rendering context’, a supporting object you can acquire by calling the canvas’s [getContext()](https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/getContext) and [newPage()][newPage] methods.
 
 
-| Canvas State                           | Drawing Primitives                          | Stroke & Fill Style                  | Compositing Effects                                      |
-|----------------------------------------|---------------------------------------------|--------------------------------------|----------------------------------------------------------|
-| [**canvas**](#canvas) [⚡](#canvas)     | [clearRect()][clearRect()]                  | [**fillStyle**][fillStyle]           | [**filter**][filter]                                     |
-| [**globalAlpha**][globalAlpha]         | [drawImage()][drawImage()]                  | [**lineCap**][lineCap]               | [**globalCompositeOperation**][globalCompositeOperation] |
-| [beginPath()][beginPath()]             | [fill()][fill()]                            | [**lineDashOffset**][lineDashOffset] | [**shadowBlur**][shadowBlur]                             |
-| [clip()][clip()]                       | [fillRect()][fillRect()]                    | [**lineJoin**][lineJoin]             | [**shadowColor**][shadowColor]                           |
-| [isPointInPath()][isPointInPath()]     | [fillText()][fillText()] [⚡][drawText]      | [**lineWidth**][lineWidth]           | [**shadowOffsetX**][shadowOffsetX]                       |
-| [isPointInStroke()][isPointInStroke()] | [stroke()][stroke()]                        | [**miterLimit**][miterLimit]         | [**shadowOffsetY**][shadowOffsetY]                       |
-| [restore()][restore()]                 | [strokeRect()][strokeRect()]                | [**strokeStyle**][strokeStyle]       |                                                          |
-| [save()][save()]                       | [strokeText()][strokeText()] [⚡][drawText]  | [getLineDash()][getLineDash()]       |                                                          |
-|                                        |                                             | [setLineDash()][setLineDash()]       |                                                          |
+| Canvas State                           | Drawing Primitives                           | Stroke & Fill Style                  | Compositing Effects                                      |
+|----------------------------------------|----------------------------------------------|--------------------------------------|----------------------------------------------------------|
+| [**canvas**](#canvas) ⧸[⚡](#canvas)   | [clearRect()][clearRect()]                   | [**fillStyle**][fillStyle]           | [**filter**][filter]                                     |
+| [**globalAlpha**][globalAlpha]         | [drawImage()][drawImage()]                   | [**lineCap**][lineCap]               | [**globalCompositeOperation**][globalCompositeOperation] |
+| [beginPath()][beginPath()]             | [fill()][fill()]                             | [**lineDashOffset**][lineDashOffset] | [**shadowBlur**][shadowBlur]                             |
+| [clip()][clip()]                       | [fillRect()][fillRect()]                     | [**lineJoin**][lineJoin]             | [**shadowColor**][shadowColor]                           |
+| [isPointInPath()][isPointInPath()]     | [fillText()][fillText()] ⧸[⚡][drawText]     | [**lineWidth**][lineWidth]           | [**shadowOffsetX**][shadowOffsetX]                       |
+| [isPointInStroke()][isPointInStroke()] | [stroke()][stroke()]                         | [**miterLimit**][miterLimit]         | [**shadowOffsetY**][shadowOffsetY]                       |
+| [restore()][restore()]                 | [strokeRect()][strokeRect()]                 | [**strokeStyle**][strokeStyle]       |                                                          |
+| [save()][save()]                       | [strokeText()][strokeText()] ⧸[⚡][drawText] | [getLineDash()][getLineDash()]       |                                                          |
+|                                        |                                              | [setLineDash()][setLineDash()]       |                                                          |
 
 
 | Bezier Paths                             | Typography                                                  | Pattern & Image                                    | Transform                                |
 |------------------------------------------|-------------------------------------------------------------|----------------------------------------------------|------------------------------------------|
 | [arc()][arc()]                           | [**direction**][direction]                                  | [**imageSmoothingEnabled**][imageSmoothingEnabled] | [**currentTransform**][currentTransform] |
-| [arcTo()][arcTo()]                       | [**font**][font] [⚡](#font)                                 | [**imageSmoothingQuality**][imageSmoothingQuality] | [getTransform()][getTransform()]         |
+| [arcTo()][arcTo()]                       | [**font**][font] ⧸[⚡](#font)                                 | [**imageSmoothingQuality**][imageSmoothingQuality] | [getTransform()][getTransform()]         |
 | [bezierCurveTo()][bezierCurveTo()]       | [**fontVariant** ⚡](#fontvariant)                           | [createConicGradient()][createConicGradient()]     | [resetTransform()][resetTransform()]     |
 | [closePath()][closePath()]               | [**textAlign**][textAlign]                                  | [createImageData()][createImageData()]             | [rotate()][rotate()]                     |
 | [ellipse()][ellipse()]                   | [**textBaseline**][textBaseline]                            | [createLinearGradient()][createLinearGradient()]   | [scale()][scale()]                       |
 | [lineTo()][lineTo()]                     | [**textTracking** ⚡](#texttracking)                         | [createPattern()][createPattern()]                 | [setTransform()][setTransform()]         |
 | [moveTo()][moveTo()]                     | [**textWrap** ⚡](#textwrap)                                 | [createRadialGradient()][createRadialGradient()]   | [transform()][transform()]               |
-| [quadraticCurveTo()][quadraticCurveTo()] | [measureText()][measureText()] [⚡](#measuretextstr-width)   | [getImageData()][getImageData()]                   | [translate()][translate()]               |
+| [quadraticCurveTo()][quadraticCurveTo()] | [measureText()][measureText()] ⧸[⚡](#measuretextstr-width)   | [getImageData()][getImageData()]                   | [translate()][translate()]               |
 | [rect()][rect()]                         |                                                             | [putImageData()][putImageData()]                   |                                          |
 
+##### PROPERTIES
 
 #### `.font`
 
@@ -269,7 +291,9 @@ The tracking value defaults to `0` and settings will persist across changes to t
 
 #### `.textWrap`
 
-The standard canvas has a rather impoverished typesetting system, allowing for only a single line of text and an approach to width-management that horizontally scales the letterforms (a type-crime if ever there was one). Skia Canvas allows you to opt-out of this single-line world by setting the `.textWrap` property to `true`. Doing so affects the behavior of the `fillText()`, `strokeText()`, and `measureText()` methods as described below.
+The standard canvas has a rather impoverished typesetting system, allowing for only a single line of text and an approach to width-management that horizontally scales the letterforms (a type-crime if ever there was one). Skia Canvas allows you to opt-out of this single-line world by setting the `.textWrap` property to `true`. Doing so affects the behavior of the `fillText()`, `strokeText()`, and `measureText()`
+
+##### METHODS
 
 #### `fillText(str, x, y, [width])` & `strokeText(str, x, y, [width])`
 
@@ -298,19 +322,8 @@ The `startIndex` and `endIndex` values are the indices into the string of the fi
 
 ## Path2D
 
-The context object creates an implicit ‘current’ bézier path which is updated by commands like [lineTo()][lineTo()] and [arcTo()][arcTo()] and is drawn to the canvas by calling [fill()][fill()], [stroke()][stroke()], or [clip()][clip()] without any arguments (aside from an optional [winding][nonzero] [rule][evenodd]). If you start creating a second path by calling [beginPath()][beginPath()] the context discards the prior path, forcing you to recreate it by hand if you need it again later.
+The `Path2D` class allows you to create paths independent of a given [Canvas](#canvas) or [graphics context](#canvasrenderingcontext2d). These paths can be modified over time and drawn repeatedly (potentially on multiple canvases).
 
-The `Path2D` class allows you to create paths independent of the context to be drawn as needed (potentially repeatedly). Its constructor can be called without any arguments to create a new, empty path object. It can also accept a string  using [SVG syntax][SVG_path_commands] or a reference to an existing `Path2D` object (which it will return a clone of):
-
-```js
-// three identical (but independent) paths
-let p1 = new Path2D("M 10,10 h 100 v 100 h -100 Z")
-let p2 = new Path2D(p1)
-let p3 = new Path2D()
-p3.rect(10, 10, 100, 100)
-```
-
-You can then use these objects by passing them as the first argument to the context’s `fill()`, `stroke()`, and `clip()` methods (along with an optional second argument specifying the winding rule).
 
 | Line Segments                              | Shapes                   | Boolean Ops ⚡            | Extents ⚡      |
 | --                                         | --                       | --                       | --            |
@@ -321,6 +334,26 @@ You can then use these objects by passing them as the first argument to the cont
 | [closePath()][p2d_closePath]               | [rect()][p2d_rect]       | [xor()][bool-ops]        |
 
 
+#### Creating `Path2D` objects
+
+Its constructor can be called without any arguments to create a new, empty path object. It can also accept a string  using [SVG syntax][SVG_path_commands] or a reference to an existing `Path2D` object (which it will return a clone of):
+```js
+// three identical (but independent) paths
+let p1 = new Path2D("M 10,10 h 100 v 100 h -100 Z")
+let p2 = new Path2D(p1)
+let p3 = new Path2D()
+p3.rect(10, 10, 100, 100)
+```
+
+#### Drawing paths
+
+A canvas’s context always contains an implicit ‘current’ bézier path which is updated by commands like [lineTo()][lineTo()] and [arcTo()][arcTo()] and is drawn to the canvas by calling [fill()][fill()], [stroke()][stroke()], or [clip()][clip()] without any arguments (aside from an optional [winding][nonzero] [rule][evenodd]). If you start creating a second path by calling [beginPath()][beginPath()] the context discards the prior path, forcing you to recreate it by hand if you need it again later.
+
+You can then use these objects by passing them as the first argument to the context’s `fill()`, `stroke()`, and `clip()` methods (along with an optional second argument specifying the winding rule).
+
+
+##### PROPERTIES
+
 #### `.bounds`
 
 In the browser, Path2D objects offer very little in the way of introspection—they are mostly-opaque recorders of drawing commands that can be ‘played back’ later on. Skia Canvas offers some additional transparency by allowing you to measure the total amount of space the lines will occupy (though you’ll need to account for the current `lineWidth` if you plan to draw the path with `stroke()`).
@@ -329,6 +362,8 @@ The `.bounds` property contains an object defining the minimal rectangle contain
 ```
 {top, left, bottom, right, width, height}
 ```
+
+##### METHODS
 
 #### `complement()`, `difference()`, `intersect()`, `union()`, and `xor()`
 In addition to creating `Path2D` objects through the constructor, you can use pairs of existing paths *in combination* to generate new paths based on their degree of overlap. Based on the method you choose, a different boolean relationship will be used to construct the new path. In all the following examples we’ll be starting off with a pair of overlapping shapes:
