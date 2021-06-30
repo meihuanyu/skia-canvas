@@ -69,11 +69,11 @@ If you’re running on a supported platform, installation should be as simple as
 $ npm install skia-canvas
 ```
 
-This will download a pre-compiled library from the project’s most recent [release](https://github.com/samizdatco/skia-canvas/releases). 
+This will download a pre-compiled library from the project’s most recent [release](https://github.com/samizdatco/skia-canvas/releases).
 
 ### Dependencies
 
-Nearly everything you need is statically linked into the library. 
+Nearly everything you need is statically linked into the library.
 
 A notable exception is the [Fontconfig](https://www.freedesktop.org/wiki/Software/fontconfig/) library (and its associated [FreeType](https://www.freetype.org) renderer) which must be installed separately if you’re running on Linux.
 
@@ -91,8 +91,21 @@ Pre-compiled binaries are available for:
   - macOS (x86 & Apple silicon)
   - Windows (x86)
 
+### Running in Docker
 
-### Compiling from source
+The library is compatible with Linux systems using glibc 2.24 or later. Currently the `rust-skia` library [will not compile](https://github.com/rust-skia/rust-skia/issues/356) against the [musl](https://musl.libc.org) library used by Alpine Linux—though this may change in the future. For now, if you are setting up a [Dockerfile](https://nodejs.org/en/docs/guides/nodejs-docker-webapp/) that uses [`node`](https://hub.docker.com/_/node) as its basis, you’ll want to set your `FROM` image to one of the (Debian-derived) defaults like `node:16`, `node:14`, `node:12`, `node:buster`, `node:stretch`, or simply:
+```dockerfile
+FROM node
+```
+
+You can also use the ‘slim’ image if you manually install fontconfig:
+
+```dockerfile
+FROM node:slim
+RUN apt-get update && apt-get install -y -q --no-install-recommends libfontconfig1 
+```
+
+### Compiling from Source
 
 If prebuilt binaries aren’t available for your system you’ll need to compile the portions of this library that directly interface with Skia.
 
@@ -155,7 +168,7 @@ The Canvas object is a stand-in for the HTML `<canvas>` element. It defines imag
 
 #### Creating new `Canvas` objects
 
-Rather than calling a DOM method to create a new canvas, you can simply call the `Canvas` constructor with the width and height (in pixels) of the image you’d like to being drawing.
+Rather than calling a DOM method to create a new canvas, you can simply call the `Canvas` constructor with the width and height (in pixels) of the image you’d like to begin drawing.
 
 ```js
 let defaultCanvas = new Canvas() // without arguments, defaults to 300 × 150 px

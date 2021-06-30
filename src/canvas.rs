@@ -1,4 +1,5 @@
 #![allow(non_snake_case)]
+#![allow(clippy::too_many_arguments)]
 use std::fs;
 use std::path::Path;
 use std::cell::RefCell;
@@ -7,8 +8,8 @@ use neon::prelude::*;
 use rayon::prelude::*;
 use crc::{crc32, Hasher32};
 use skia_safe::{Rect, Matrix, Path as SkPath, Picture, PictureRecorder,
-                Size, ClipOp, Surface, EncodedImageFormat, Data,
-                pdf, svg::{self, canvas::Flags}, Document};
+                Size, ClipOp, Surface, EncodedImageFormat, Data, Color,
+                svg::{self, canvas::Flags}, Document};
 
 use crate::utils::*;
 use crate::context::BoxedContext2D;
@@ -79,7 +80,7 @@ impl Page{
     snapshot
   }
 
-  fn encoded_as(&self, format:&str, quality:f32, density:f32, outline:bool) -> Result<Data, String> {
+  fn encoded_as(&self, format:&str, quality:f32, density:f32, outline:bool, matte:Option<Color>) -> Result<Data, String> {
     let picture = self.get_picture().ok_or("Could not generate an image")?;
 
     if self.bounds.is_empty(){
@@ -98,6 +99,7 @@ impl Page{
         if let Some(mut surface) = Surface::new_raster_n32_premul(img_dims){
           surface
             .canvas()
+            .clear(matte.unwrap_or(Color::TRANSPARENT))
             .set_matrix(&img_scale.into())
             .draw_picture(&picture, None, None);
           surface
@@ -109,7 +111,7 @@ impl Page{
           Err("Could not allocate new bitmap".to_string())
         }
       }else if format == "pdf"{
-        let mut document = pdf::new_document(None).begin_page(img_dims, None);
+        let mut document = pdf_document(quality, density).begin_page(img_dims, None);
         let canvas = document.canvas();
         canvas.draw_picture(&picture, None, None);
         Ok(document.end_page().close())
@@ -126,9 +128,9 @@ impl Page{
 
   }
 
-  fn write(&self, filename: &str, file_format:&str, quality:f32, density:f32, outline:bool) -> Result<(), String> {
+  fn write(&self, filename: &str, file_format:&str, quality:f32, density:f32, outline:bool, matte:Option<Color>) -> Result<(), String> {
     let path = Path::new(&filename);
-    let data = self.encoded_as(&file_format, quality, density, outline)?;
+    let data = self.encoded_as(&file_format, quality, density, outline, matte)?;
     fs::write(path, data.as_bytes()).map_err(|why|
       format!("{}: \"{}\"", why, path.display())
     )
@@ -136,8 +138,7 @@ impl Page{
 
   fn append_to(&self, doc:Document) -> Result<Document, String>{
     if !self.bounds.is_empty(){
-      let dims = (self.bounds.width() as i32, self.bounds.height() as i32);
-      let mut doc = doc.begin_page(dims, None);
+      let mut doc = doc.begin_page(self.bounds.size(), None);
       let canvas = doc.canvas();
       if let Some(picture) = self.get_picture(){
         canvas.draw_picture(&picture, None, None);
@@ -149,16 +150,16 @@ impl Page{
   }
 }
 
-fn to_pdf(pages:&[Page]) -> Result<Data, String>{
+fn to_pdf(pages:&[Page], quality:f32, density:f32) -> Result<Data, String>{
   pages
     .iter()
-    .try_fold(pdf::new_document(None), |doc, page| page.append_to(doc))
+    .try_fold(pdf_document(quality, density), |doc, page| page.append_to(doc))
     .map(|doc| doc.close())
 }
 
-fn write_pdf(path:&str, pages:&[Page]) -> Result<(), String>{
+fn write_pdf(path:&str, pages:&[Page], quality:f32, density:f32) -> Result<(), String>{
   let path = Path::new(&path);
-  match to_pdf(&pages){
+  match to_pdf(&pages, quality, density){
     Ok(document) => fs::write(path, document.as_bytes()).map_err(|why|
       format!("{}: \"{}\"", why, path.display())
     ),
@@ -166,7 +167,7 @@ fn write_pdf(path:&str, pages:&[Page]) -> Result<(), String>{
   }
 }
 
-fn write_sequence(pages:&[Page], pattern:&str, format:&str, padding:f32, quality:f32, density:f32, outline:bool) -> Result<(), String>{
+fn write_sequence(pages:&[Page], pattern:&str, format:&str, padding:f32, quality:f32, density:f32, outline:bool, matte:Option<Color>) -> Result<(), String>{
   let padding = match padding as i32{
     -1 => (1.0 + (pages.len() as f32).log10().floor()) as usize,
     pad => pad as usize
@@ -178,7 +179,7 @@ fn write_sequence(pages:&[Page], pattern:&str, format:&str, padding:f32, quality
     .try_for_each(|(pp, page)|{
       let folio = format!("{:0width$}", pp+1, width=padding);
       let filename = pattern.replace("{}", folio.as_str());
-      page.write(&filename, &format, quality, density, outline)
+      page.write(&filename, &format, quality, density, outline, matte)
     })
 }
 
@@ -249,14 +250,14 @@ pub fn get_height(mut cx: FunctionContext) -> JsResult<JsNumber> {
 pub fn set_width(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let this = cx.argument::<BoxedCanvas>(0)?;
   let width = float_arg(&mut cx, 1, "size")?;
-  this.borrow_mut().width = width.floor();
+  this.borrow_mut().width = width;
   Ok(cx.undefined())
 }
 
 pub fn set_height(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let this = cx.argument::<BoxedCanvas>(0)?;
   let height = float_arg(&mut cx, 1, "size")?;
-  this.borrow_mut().height = height.floor();
+  this.borrow_mut().height = height;
   Ok(cx.undefined())
 }
 
@@ -281,14 +282,15 @@ pub fn toBuffer(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let quality = float_arg(&mut cx, 4, "quality")?;
   let density = float_arg(&mut cx, 5, "density")?;
   let outline = bool_arg(&mut cx, 6, "outline")?;
+  let matte = color_arg(&mut cx, 7);
   let queue = cx.queue();
 
   rayon::spawn(move || {
     let encoded = {
       if file_format=="pdf" && pages.len() > 1 {
-        to_pdf(&pages)
+        to_pdf(&pages, quality, density)
       }else{
-        pages[0].encoded_as(&file_format, quality, density, outline)
+        pages[0].encoded_as(&file_format, quality, density, outline, matte)
       }
     };
 
@@ -328,12 +330,13 @@ pub fn toBufferSync(mut cx: FunctionContext) -> JsResult<JsValue> {
   let quality = float_arg(&mut cx, 3, "quality")?;
   let density = float_arg(&mut cx, 4, "density")?;
   let outline = bool_arg(&mut cx, 5, "outline")?;
+  let matte = color_arg(&mut cx, 6);
 
     let encoded = {
       if file_format=="pdf" && pages.len() > 1 {
-        to_pdf(&pages)
+        to_pdf(&pages, quality, density)
       }else{
-        pages[0].encoded_as(&file_format, quality, density, outline)
+        pages[0].encoded_as(&file_format, quality, density, outline, matte)
       }
     };
 
@@ -361,16 +364,17 @@ pub fn save(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let quality = float_arg(&mut cx, 6, "quality")?;
   let density = float_arg(&mut cx, 7, "density")?;
   let outline = bool_arg(&mut cx, 8, "outline")?;
+  let matte = color_arg(&mut cx, 9);
   let queue = cx.queue();
 
   rayon::spawn(move || {
     let result = {
       if sequence {
-        write_sequence(&pages, &name_pattern, &file_format, padding, quality, density, outline)
+        write_sequence(&pages, &name_pattern, &file_format, padding, quality, density, outline, matte)
       } else if file_format == "pdf" {
-        write_pdf(&name_pattern, &pages)
+        write_pdf(&name_pattern, &pages, quality, density)
       } else {
-        pages[0].write(&name_pattern, &file_format, quality, density, outline)
+        pages[0].write(&name_pattern, &file_format, quality, density, outline, matte)
       }
     };
 
@@ -406,14 +410,15 @@ pub fn saveSync(mut cx: FunctionContext) -> JsResult<JsUndefined> {
   let quality = float_arg(&mut cx, 5, "quality")?;
   let density = float_arg(&mut cx, 6, "density")?;
   let outline = bool_arg(&mut cx, 7, "outline")?;
+  let matte = color_arg(&mut cx, 8);
 
   let result = {
     if sequence {
-      write_sequence(&pages, &name_pattern, &file_format, padding, quality, density, outline)
+      write_sequence(&pages, &name_pattern, &file_format, padding, quality, density, outline, matte)
     } else if file_format == "pdf" {
-      write_pdf(&name_pattern, &pages)
+      write_pdf(&name_pattern, &pages, quality, density)
     } else {
-      pages[0].write(&name_pattern, &file_format, quality, density, outline)
+      pages[0].write(&name_pattern, &file_format, quality, density, outline, matte)
     }
   };
 
