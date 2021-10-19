@@ -1,17 +1,9 @@
 {
-  "name": "skia-canvas",
-  "version": "0.9.25",
+  "name": "@arkie/skia-canvas",
+  "version": "1.0.10",
   "description": "A canvas environment for Node",
   "author": "Christian Swinehart <drafting@samizdat.co>",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/samizdatco/skia-canvas.git"
-  },
-  "bugs": {
-    "url": "https://github.com/samizdatco/skia-canvas/issues"
-  },
-  "homepage": "https://github.com/samizdatco/skia-canvas#readme",
   "main": "lib",
   "browser": {
     "lib": "./lib/browser.js",
@@ -21,7 +13,8 @@
     "build": "cargo-cp-artifact -nc lib/v6/index.node -- cargo build --message-format=json-render-diagnostics",
     "install": "node-pre-gyp install || npm run build -- --release",
     "package": "node-pre-gyp package",
-    "upload": "node-pre-gyp publish",
+    "upload": "node upload",
+    "publish": "node publish",
     "test": "jest"
   },
   "dependencies": {
@@ -32,7 +25,7 @@
     "string-split-by": "^1.0.0"
   },
   "devDependencies": {
-    "aws-sdk": "^2.967.0",
+    "ali-oss": "^6.16.0",
     "cargo-cp-artifact": "^0.1",
     "express": "^4.17.1",
     "jest": "^27.1.1",
@@ -45,24 +38,9 @@
     "module_path": "./lib/v{napi_build_version}",
     "remote_path": "./v{version}",
     "package_name": "{platform}-{arch}-{node_napi_label}.tar.gz",
-    "host": "https://skia-canvas.s3.us-east-1.amazonaws.com",
+    "host": "https://mock-test.oss-cn-beijing.aliyuncs.com",
     "napi_versions": [
       6
     ]
-  },
-  "keywords": [
-    "skia",
-    "canvas",
-    "offscreen",
-    "headless",
-    "graphic",
-    "graphics",
-    "image",
-    "images",
-    "compositing",
-    "render",
-    "pdf",
-    "svg",
-    "rust"
-  ]
+  }
 }
