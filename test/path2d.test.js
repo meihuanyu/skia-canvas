@@ -1,7 +1,7 @@
 // @ts-check
 
 const _ = require('lodash'),
-      {Canvas, DOMMatrix, Path2D} = require('../lib');
+      {Canvas, DOMMatrix, Path2D} = require('../js-lib');
 
 const BLACK = [0,0,0,255],
       WHITE = [255,255,255,255],

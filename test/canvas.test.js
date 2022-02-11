@@ -4,7 +4,7 @@ const _ = require('lodash'),
       fs = require('fs'),
       tmp = require('tmp'),
       glob = require('glob').sync,
-      {Canvas, Image} = require('../lib');
+      {Canvas, Image} = require('../js-lib');
 
 const BLACK = [0,0,0,255],
       WHITE = [255,255,255,255],

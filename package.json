@@ -1,27 +1,18 @@
 {
-  "name": "skia-canvas",
-  "version": "0.9.29",
-  "description": "A canvas environment for Node",
+  "name": "@arkie/skia-canvas",
+  "version": "1.2.2",
+  "description": "arkie fork skia-canvas",
   "author": "Christian Swinehart <drafting@samizdat.co>",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/samizdatco/skia-canvas.git"
-  },
-  "bugs": {
-    "url": "https://github.com/samizdatco/skia-canvas/issues"
-  },
-  "homepage": "https://github.com/samizdatco/skia-canvas#readme",
-  "main": "lib",
-  "browser": {
-    "lib": "./lib/browser.js",
-    "path": "path-browserify"
-  },
+  "main": "js-lib",
+  "browser": "js-lib/browser.js",
   "scripts": {
-    "build": "cargo-cp-artifact -nc lib/v6/index.node -- cargo build --message-format=json-render-diagnostics",
+    "build": "cargo-cp-artifact -nc js-lib/v6/index.node -- cargo build --message-format=json-render-diagnostics",
     "install": "node-pre-gyp install || npm run build -- --release",
     "package": "node-pre-gyp package",
-    "upload": "node-pre-gyp publish",
+    "upload": "node upload",
+    "publish": "node publish",
+    "buildJs": "babel lib --out-dir js-lib && cp -f lib/index.d.ts js-lib",
     "test": "jest"
   },
   "dependencies": {
@@ -29,8 +20,9 @@
     "cargo-cp-artifact": "^0.1",
     "glob": "^7.2.0",
     "path-browserify": "^1.0.1",
-    "simple-get": "^4.0.1",
-    "string-split-by": "^1.0.0"
+    "simple-get": "^4.0.0",
+    "string-split-by": "^1.0.0",
+    "core-js": "2.6.5"
   },
   "devDependencies": {
     "@types/jest": "^27.4.0",
@@ -40,34 +32,21 @@
     "jest": "^27.5.0",
     "lodash": "^4.17.21",
     "nodemon": "^2.0.15",
-    "tmp": "^0.2.1"
+    "tmp": "^0.2.1",
+    "@babel/polyfill": "^7.12.1",
+    "@babel/cli": "^7.15.7",
+    "@babel/core": "^7.15.8",
+    "@babel/preset-env": "^7.15.8",
+    "ali-oss": "6.16.0"
   },
-  "files": [
-    "lib"
-  ],
   "binary": {
     "module_name": "index",
-    "module_path": "./lib/v{napi_build_version}",
+    "module_path": "./js-lib/v{napi_build_version}",
     "remote_path": "./v{version}",
     "package_name": "{platform}-{arch}-{node_napi_label}-{libc}.tar.gz",
-    "host": "https://skia-canvas.s3.us-east-1.amazonaws.com",
+    "host": "https://arkie-mirror.oss-cn-hangzhou.aliyuncs.com/skia-canvas",
     "napi_versions": [
       6
     ]
-  },
-  "keywords": [
-    "skia",
-    "canvas",
-    "offscreen",
-    "headless",
-    "graphic",
-    "graphics",
-    "image",
-    "images",
-    "compositing",
-    "render",
-    "pdf",
-    "svg",
-    "rust"
-  ]
+  }
 }

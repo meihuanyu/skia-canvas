@@ -3,7 +3,7 @@
 const _ = require('lodash'),
       fs = require('fs'),
       glob = require('glob').sync,
-      {Image, FontLibrary, loadImage} = require('../lib'),
+      {Image, FontLibrary, loadImage} = require('../js-lib'),
       simple = require('simple-get')
 
 jest.mock('simple-get', () => {

@@ -1,6 +1,6 @@
 var path = require('path')
 var express = require('express')
-var {Canvas} = require('../../lib')
+var {Canvas} = require('../../js-lib')
 var tests = require('./tests')
 
 function renderTest (canvas, name, cb) {

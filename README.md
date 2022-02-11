@@ -1,4 +1,4 @@
-# Skia Canvas
+# Skia Canvas1.1.5
 
 Skia Canvas is a browser-less implementation of the HTML Canvas drawing API for Node.js. It is based on Google’s [Skia](https://skia.org) graphics engine and as a result produces very similar results to Chrome’s `<canvas>` element.
 

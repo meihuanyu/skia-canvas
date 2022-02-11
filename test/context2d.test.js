@@ -3,8 +3,8 @@
 "use strict"
 
 const _ = require('lodash'),
-      {Canvas, DOMMatrix, ImageData, loadImage} = require('../lib'),
-      css = require('../lib/css');
+      {Canvas, DOMMatrix, ImageData, loadImage} = require('../js-lib'),
+      css = require('../js-lib/css');
 
 const BLACK = [0,0,0,255],
       WHITE = [255,255,255,255],

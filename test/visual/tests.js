@@ -7,7 +7,7 @@ var tests = {}
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = tests
-  let skCanvas = require('../../lib')
+  let skCanvas = require('../../js-lib')
   Image = skCanvas.Image
   DOMMatrix = skCanvas.DOMMatrix
   imageSrc = function (filename) { return require('path').join(__dirname, '../assets', filename) }
